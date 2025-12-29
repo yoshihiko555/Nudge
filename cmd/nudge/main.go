@@ -77,6 +77,8 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
+			// Dock に表示しない（メニューバー専用アプリ）
+			ActivationPolicy: application.ActivationPolicyAccessory,
 			// メニューバー常駐のため、最後のウィンドウが閉じても終了しない
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
