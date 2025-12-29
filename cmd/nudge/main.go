@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -17,11 +19,15 @@ import (
 	"nudge/internal/store"
 )
 
+// UI の埋め込み資産（index.html/js/css）をバイナリに同梱する
+//
 //go:embed assets/*
 var assets embed.FS
 
 const (
-	trayIconBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5WlHkAAAAASUVORK5CYII="
+	// メニューバー（SystemTray）用のフォールバックアイコン（PNG を base64 化）
+	// tray_icon_path が未設定・読み込み失敗時に使う
+	trayIconBase64 = "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"
 )
 
 type rpcRequest struct {
@@ -55,6 +61,7 @@ type openURLPayload struct {
 }
 
 func main() {
+	// 永続化ストアと Notion クライアントの組み立て
 	cfgStore := store.NewFileConfigStore(coreapp.AppName)
 	tokenStore := store.NewKeychainTokenStore(coreapp.KeychainService, coreapp.KeychainAccount)
 	notionClient := notion.NewClient(tokenStore)
@@ -66,11 +73,14 @@ func main() {
 		Name:        coreapp.AppName,
 		Description: "Notion tasks in menu bar",
 		Assets: application.AssetOptions{
+			// 埋め込み assets をローカルサーバとして提供
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
+			// メニューバー常駐のため、最後のウィンドウが閉じても終了しない
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
+		// JS 側からの RPC を直接ハンドリング
 		RawMessageHandler: func(window application.Window, message string, origin *application.OriginInfo) {
 			handleRawMessage(core, app, window, message, origin)
 		},
@@ -88,27 +98,29 @@ func main() {
 		URL:           "/index.html",
 	})
 
-	setupTray(app, popover)
+	// メニューバー（SystemTray）の初期化
+	setupTray(app, popover, core.GetConfig())
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func setupTray(app *application.App, window *application.WebviewWindow) {
-	icon, err := base64.StdEncoding.DecodeString(trayIconBase64)
-	if err != nil {
-		icon = nil
-	}
+func setupTray(app *application.App, window *application.WebviewWindow, cfg dto.Config) {
+	// パス指定があれば PNG を直接読み込む（base64 変換不要）
+	icon := loadTrayIcon(cfg)
+	// メニューバー（SystemTray）を構成
 	systray := app.SystemTray.New()
 	if icon != nil {
 		systray.SetIcon(icon)
 		systray.SetDarkModeIcon(icon)
 	}
-	systray.SetLabel(coreapp.AppName)
+	// ラベルを空にしてアイコンのみ表示
+	systray.SetLabel("")
 
 	menu := app.NewMenu()
 	menu.Add("進行中").OnClick(func(ctx *application.Context) {
+		// 画面遷移はフロントエンドへイベント通知
 		window.EmitEvent("view-change", "inprogress")
 		window.Show()
 	})
@@ -128,11 +140,43 @@ func setupTray(app *application.App, window *application.WebviewWindow) {
 	menu.Add("終了").OnClick(func(ctx *application.Context) {
 		app.Quit()
 	})
+	// メニュー適用とウィンドウの紐付け
 	systray.SetMenu(menu)
 	systray.AttachWindow(window)
 }
 
+func loadTrayIcon(cfg dto.Config) []byte {
+	if strings.TrimSpace(cfg.TrayIconPath) != "" {
+		path := resolveTrayIconPath(cfg.TrayIconPath)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("tray icon: read failed: path=%s err=%v", path, err)
+		} else if len(b) > 0 {
+			return b
+		}
+	}
+	// フォールバック（埋め込み base64）
+	icon, err := base64.StdEncoding.DecodeString(trayIconBase64)
+	if err != nil {
+		log.Printf("tray icon: base64 decode failed: %v", err)
+		return nil
+	}
+	return icon
+}
+
+func resolveTrayIconPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(base, coreapp.AppName, path)
+}
+
 func handleRawMessage(core *coreapp.App, app *application.App, window application.Window, message string, origin *application.OriginInfo) {
+	// 外部起点のメッセージは拒否
 	if !isTrustedOrigin(origin) {
 		return
 	}
@@ -146,9 +190,11 @@ func handleRawMessage(core *coreapp.App, app *application.App, window applicatio
 
 	ctx := context.Background()
 	respond := func(resp rpcResponse) {
+		// 返信はイベント経由でフロントエンドに返す
 		window.EmitEvent("rpc:response", resp)
 	}
 
+	// action に応じてアプリ側ユースケースを呼び分け
 	switch req.Action {
 	case "getConfig":
 		cfg, err := core.LoadConfig()
@@ -286,10 +332,12 @@ func isTrustedOrigin(origin *application.OriginInfo) bool {
 	if origin.Origin == "" {
 		return true
 	}
+	// 埋め込み webview 由来のみ許可
 	return strings.HasPrefix(origin.Origin, "wails://") || strings.HasPrefix(origin.Origin, "http://wails.localhost")
 }
 
 func mapStatus(cfg dto.Config, status string) string {
+	// フロントの表示用ステータスを実際の Notion 値に変換
 	switch status {
 	case "inprogress":
 		return cfg.StatusInProgress
@@ -301,6 +349,7 @@ func mapStatus(cfg dto.Config, status string) string {
 }
 
 func mapActionToStatus(cfg dto.Config, action string) string {
+	// フロントのアクションを更新後のステータスに変換
 	switch action {
 	case "done":
 		return cfg.StatusDone

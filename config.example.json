@@ -9,5 +9,6 @@
   "status_paused": "Paused",
   "poll_interval_seconds": 60,
   "max_results": 30,
+  "tray_icon_path": "",
   "notion_version": ""
 }
