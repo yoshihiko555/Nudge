@@ -219,17 +219,24 @@ async function refreshTokenStatus() {
   const tokenSet = await rpc('getTokenStatus');
   state.tokenSet = Boolean(tokenSet);
   tokenHint.textContent = tokenSet ? '保存済み' : '未保存';
+  // 保存済みの場合は伏せ字を表示
+  if (tokenSet) {
+    tokenInput.value = '●●●●●●●●●●●●';
+    tokenInput.disabled = true;
+  } else {
+    tokenInput.value = '';
+    tokenInput.disabled = false;
+  }
   setStatusChip();
 }
 
 async function saveToken() {
   const token = tokenInput.value.trim();
-  if (!token) {
+  if (!token || token === '●●●●●●●●●●●●') {
     setError('トークンが空です');
     return;
   }
   await rpc('setToken', { token });
-  tokenInput.value = '';
   await refreshTokenStatus();
 }
 
