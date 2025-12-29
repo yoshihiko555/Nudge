@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nudge</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/runtime.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div id="app" data-view="inprogress">
+      <header class="app-header">
+        <div class="title-block">
+          <div class="logo">N</div>
+          <div>
+            <h1>Nudge</h1>
+            <p class="subtitle">進行中だけを静かに表示</p>
+          </div>
+        </div>
+        <div class="status-chip" id="statusChip">未接続</div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab is-active" data-view="inprogress">進行中</button>
+        <button class="tab" data-view="paused">中断</button>
+        <button class="tab" data-view="settings">設定</button>
+      </nav>
+
+      <section class="pane" data-pane="inprogress">
+        <div class="pane-header">
+          <div>
+            <h2>進行中</h2>
+            <p class="hint">最新の更新から 60 秒おきに自動更新</p>
+          </div>
+          <button class="btn ghost" id="refreshBtn">更新</button>
+        </div>
+        <div id="taskList" class="task-list"></div>
+        <div id="taskEmpty" class="empty-state">進行中タスクがありません</div>
+      </section>
+
+      <section class="pane" data-pane="paused">
+        <div class="pane-header">
+          <div>
+            <h2>中断</h2>
+            <p class="hint">戻す操作はここから</p>
+          </div>
+          <button class="btn ghost" id="refreshPausedBtn">更新</button>
+        </div>
+        <div id="pausedList" class="task-list"></div>
+        <div id="pausedEmpty" class="empty-state">中断タスクがありません</div>
+      </section>
+
+      <section class="pane" data-pane="settings">
+        <div class="pane-header">
+          <div>
+            <h2>設定</h2>
+            <p class="hint">Notion 環境に合わせて入力</p>
+          </div>
+          <button class="btn" id="saveConfigBtn">保存</button>
+        </div>
+
+        <div class="form-block">
+          <label>Notion API トークン</label>
+          <div class="row">
+            <input type="password" id="tokenInput" placeholder="secret_..." />
+            <button class="btn ghost" id="saveTokenBtn">保存</button>
+            <button class="btn danger" id="clearTokenBtn">削除</button>
+          </div>
+          <p class="hint" id="tokenHint">未保存</p>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-block">
+            <label>Database ID</label>
+            <input type="text" id="databaseIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            <div class="row">
+              <button class="btn ghost" id="resolveDataSourceBtn">Data Source ID 自動取得</button>
+              <button class="btn ghost" id="resolveTitleBtn">Title プロパティ自動検出</button>
+            </div>
+          </div>
+          <div class="form-block">
+            <label>Data Source ID</label>
+            <input type="text" id="dataSourceIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+          </div>
+          <div class="form-block">
+            <label>Title プロパティ名</label>
+            <input type="text" id="titlePropertyInput" placeholder="Name" />
+          </div>
+          <div class="form-block">
+            <label>Status プロパティ名</label>
+            <input type="text" id="statusPropertyInput" placeholder="Status" />
+          </div>
+          <div class="form-block">
+            <label>Status 型</label>
+            <select id="statusTypeSelect">
+              <option value="status">status</option>
+              <option value="select">select</option>
+            </select>
+          </div>
+          <div class="form-block">
+            <label>進行中の値</label>
+            <input type="text" id="statusInProgressInput" placeholder="In Progress" />
+          </div>
+          <div class="form-block">
+            <label>完了の値</label>
+            <input type="text" id="statusDoneInput" placeholder="Done" />
+          </div>
+          <div class="form-block">
+            <label>中断の値</label>
+            <input type="text" id="statusPausedInput" placeholder="Paused" />
+          </div>
+          <div class="form-block">
+            <label>Notion Version</label>
+            <input type="text" id="notionVersionInput" placeholder="YYYY-MM-DD" />
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div id="lastUpdated">未更新</div>
+        <div id="errorText"></div>
+      </footer>
+    </div>
+  </body>
+</html>

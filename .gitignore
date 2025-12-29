@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+
+# Go build/test artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.cover
+coverage.out
+*.log
+
+# Go tooling
+/bin/
+pkg/
+tmp/
+
+# Wails build artifacts
+build/bin/
+build/dist/
+build/*.app
+build/*.dmg
+build/*.pkg
+build/*.msi
+build/*.exe
+
+# Frontend (if used)
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/wailsjs/
+dist/
+
+# Task
+.task/
