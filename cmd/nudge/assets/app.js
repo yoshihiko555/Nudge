@@ -1,9 +1,7 @@
 const appEl = document.getElementById('app');
 const statusChip = document.getElementById('statusChip');
 const taskList = document.getElementById('taskList');
-const pausedList = document.getElementById('pausedList');
 const taskEmpty = document.getElementById('taskEmpty');
-const pausedEmpty = document.getElementById('pausedEmpty');
 const lastUpdated = document.getElementById('lastUpdated');
 const errorText = document.getElementById('errorText');
 
@@ -20,7 +18,6 @@ const statusPausedInput = document.getElementById('statusPausedInput');
 const notionVersionInput = document.getElementById('notionVersionInput');
 
 const refreshBtn = document.getElementById('refreshBtn');
-const refreshPausedBtn = document.getElementById('refreshPausedBtn');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const saveTokenBtn = document.getElementById('saveTokenBtn');
 const clearTokenBtn = document.getElementById('clearTokenBtn');
@@ -88,8 +85,10 @@ function setError(message) {
 function setStatusChip() {
   if (state.tokenSet) {
     statusChip.textContent = '接続準備OK';
+    statusChip.classList.add('is-connected');
   } else {
     statusChip.textContent = '未接続';
+    statusChip.classList.remove('is-connected');
   }
 }
 
@@ -147,15 +146,6 @@ function renderTasks(listEl, emptyEl, tasks, view) {
       actions.appendChild(pauseBtn);
     }
 
-    if (view === 'paused') {
-      const resumeBtn = document.createElement('button');
-      resumeBtn.className = 'btn';
-      resumeBtn.textContent = '戻す';
-      resumeBtn.addEventListener('click', () => updateStatus(task.id, 'resume'));
-
-      actions.appendChild(resumeBtn);
-    }
-
     card.appendChild(title);
     card.appendChild(meta);
     card.appendChild(actions);
@@ -163,15 +153,11 @@ function renderTasks(listEl, emptyEl, tasks, view) {
   });
 }
 
-async function refreshTasks(view = 'inprogress') {
+async function refreshTasks() {
   try {
     setError('');
-    const tasks = await rpc('getTasks', { status: view });
-    if (view === 'inprogress') {
-      renderTasks(taskList, taskEmpty, tasks, view);
-    } else {
-      renderTasks(pausedList, pausedEmpty, tasks, view);
-    }
+    const tasks = await rpc('getTasks', { status: 'inprogress' });
+    renderTasks(taskList, taskEmpty, tasks, 'inprogress');
     lastUpdated.textContent = `更新 ${formatTime(new Date().toISOString())}`;
   } catch (err) {
     setError(err.message);
@@ -182,7 +168,7 @@ async function updateStatus(taskID, action) {
   try {
     setError('');
     await rpc('updateStatus', { task_id: taskID, action });
-    await refreshTasks(state.view);
+    await refreshTasks();
   } catch (err) {
     setError(err.message);
   }
@@ -278,7 +264,7 @@ function startPolling() {
   }
   const interval = (state.config?.poll_interval_seconds || 60) * 1000;
   state.pollTimer = setInterval(() => {
-    refreshTasks(state.view === 'paused' ? 'paused' : 'inprogress');
+    refreshTasks();
   }, interval);
 }
 
@@ -288,16 +274,12 @@ function bindUI() {
       const view = tab.dataset.view;
       setView(view);
       if (view === 'inprogress') {
-        await refreshTasks('inprogress');
-      }
-      if (view === 'paused') {
-        await refreshTasks('paused');
+        await refreshTasks();
       }
     });
   });
 
-  refreshBtn.addEventListener('click', () => refreshTasks('inprogress'));
-  refreshPausedBtn.addEventListener('click', () => refreshTasks('paused'));
+  refreshBtn.addEventListener('click', () => refreshTasks());
   saveConfigBtn.addEventListener('click', saveConfig);
   saveTokenBtn.addEventListener('click', saveToken);
   clearTokenBtn.addEventListener('click', clearToken);
@@ -308,12 +290,14 @@ function bindUI() {
     const view = event?.data;
     if (view) {
       setView(view);
-      refreshTasks(view === 'paused' ? 'paused' : 'inprogress');
+      if (view === 'inprogress') {
+        refreshTasks();
+      }
     }
   });
 
   wails.Events.On('refresh', () => {
-    refreshTasks(state.view === 'paused' ? 'paused' : 'inprogress');
+    refreshTasks();
   });
 }
 

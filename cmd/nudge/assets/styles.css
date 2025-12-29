@@ -153,11 +153,28 @@ h1 {
   box-shadow:
     var(--shadow-soft),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 接続準備OK状態のステータスチップ */
+.status-chip.is-connected {
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+  color: #34c759;
+}
+
+/* ダークモード用 */
+@media (prefers-color-scheme: dark) {
+  .status-chip.is-connected {
+    background: rgba(48, 209, 88, 0.15);
+    border-color: rgba(48, 209, 88, 0.3);
+    color: #30d158;
+  }
 }
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
   background: var(--card);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -227,7 +244,6 @@ h1 {
 }
 
 #app[data-view="inprogress"] .pane[data-pane="inprogress"],
-#app[data-view="paused"] .pane[data-pane="paused"],
 #app[data-view="settings"] .pane[data-pane="settings"] {
   display: block;
   animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);

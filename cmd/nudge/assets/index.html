@@ -23,7 +23,6 @@
 
       <nav class="tabs">
         <button class="tab is-active" data-view="inprogress">進行中</button>
-        <button class="tab" data-view="paused">中断</button>
         <button class="tab" data-view="settings">設定</button>
       </nav>
 
@@ -37,18 +36,6 @@
         </div>
         <div id="taskList" class="task-list"></div>
         <div id="taskEmpty" class="empty-state">進行中タスクがありません</div>
-      </section>
-
-      <section class="pane" data-pane="paused">
-        <div class="pane-header">
-          <div>
-            <h2>中断</h2>
-            <p class="hint">戻す操作はここから</p>
-          </div>
-          <button class="btn ghost" id="refreshPausedBtn">更新</button>
-        </div>
-        <div id="pausedList" class="task-list"></div>
-        <div id="pausedEmpty" class="empty-state">中断タスクがありません</div>
       </section>
 
       <section class="pane" data-pane="settings">
