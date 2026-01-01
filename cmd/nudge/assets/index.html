@@ -9,7 +9,7 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <div id="app" data-view="inprogress">
+    <div id="app" data-view="settings">
       <header class="app-header">
         <div class="title-block">
           <div class="logo">N</div>
@@ -21,96 +21,124 @@
         <div class="status-chip" id="statusChip">未接続</div>
       </header>
 
-      <nav class="tabs">
-        <button class="tab is-active" data-view="inprogress">進行中</button>
-        <button class="tab" data-view="settings">設定</button>
-      </nav>
+      <nav class="tabs" id="tabNav"></nav>
 
-      <section class="pane" data-pane="inprogress">
-        <div class="pane-header">
-          <div>
-            <h2>進行中</h2>
-            <p class="hint">最新の更新から 60 秒おきに自動更新</p>
+      <div id="paneContainer">
+        <section class="pane" data-pane="settings">
+          <div class="pane-header">
+            <div>
+              <h2>設定</h2>
+              <p class="hint">Notion 環境に合わせて入力</p>
+            </div>
+            <button class="btn" id="saveConfigBtn">保存</button>
           </div>
-          <button class="btn ghost" id="refreshBtn">更新</button>
-        </div>
-        <div id="taskList" class="task-list"></div>
-        <div id="taskEmpty" class="empty-state">進行中タスクがありません</div>
-      </section>
 
-      <section class="pane" data-pane="settings">
-        <div class="pane-header">
-          <div>
-            <h2>設定</h2>
-            <p class="hint">Notion 環境に合わせて入力</p>
-          </div>
-          <button class="btn" id="saveConfigBtn">保存</button>
-        </div>
-
-        <div class="form-block">
-          <label>Notion API トークン</label>
-          <input type="password" id="tokenInput" placeholder="secret_..." />
-          <div class="row">
-            <button class="btn ghost" id="saveTokenBtn">保存</button>
-            <button class="btn danger" id="clearTokenBtn">削除</button>
-          </div>
-          <p class="hint" id="tokenHint">未保存</p>
-        </div>
-
-        <div class="form-block">
-          <label>ログイン時に起動</label>
-          <div class="toggle-row">
-            <input type="checkbox" id="launchAtLoginInput" />
-            <span class="toggle-text">macOSのログイン項目に追加します</span>
-          </div>
-        </div>
-
-        <div class="form-grid">
           <div class="form-block">
-            <label>Database ID</label>
-            <input type="text" id="databaseIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            <label>Notion API トークン</label>
+            <input type="password" id="tokenInput" placeholder="secret_..." />
             <div class="row">
-              <button class="btn ghost" id="resolveDataSourceBtn">Data Source ID 自動取得</button>
-              <button class="btn ghost" id="resolveTitleBtn">Title プロパティ自動検出</button>
+              <button class="btn ghost" id="saveTokenBtn">保存</button>
+              <button class="btn danger" id="clearTokenBtn">削除</button>
+            </div>
+            <p class="hint" id="tokenHint">未保存</p>
+          </div>
+
+          <div class="form-block">
+            <label>ログイン時に起動</label>
+            <div class="toggle-row">
+              <input type="checkbox" id="launchAtLoginInput" />
+              <span class="toggle-text">macOSのログイン項目に追加します</span>
             </div>
           </div>
-          <div class="form-block">
-            <label>Data Source ID</label>
-            <input type="text" id="dataSourceIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+
+          <div class="section-block">
+            <div class="section-header">
+              <h3>データベース</h3>
+              <button class="btn ghost" id="addDatabaseBtn">追加</button>
+            </div>
+            <div id="databaseList" class="database-list"></div>
           </div>
-          <div class="form-block">
-            <label>Title プロパティ名</label>
-            <input type="text" id="titlePropertyInput" placeholder="Name" />
-          </div>
-          <div class="form-block">
-            <label>Status プロパティ名</label>
-            <input type="text" id="statusPropertyInput" placeholder="Status" />
-          </div>
-          <div class="form-block">
-            <label>Status 型</label>
-            <select id="statusTypeSelect">
-              <option value="status">status</option>
-              <option value="select">select</option>
-            </select>
-          </div>
-          <div class="form-block">
-            <label>進行中の値</label>
-            <input type="text" id="statusInProgressInput" placeholder="In Progress" />
-          </div>
-          <div class="form-block">
-            <label>完了の値</label>
-            <input type="text" id="statusDoneInput" placeholder="Done" />
-          </div>
-          <div class="form-block">
-            <label>中断の値</label>
-            <input type="text" id="statusPausedInput" placeholder="Paused" />
-          </div>
+
           <div class="form-block">
             <label>Notion Version</label>
             <input type="text" id="notionVersionInput" placeholder="YYYY-MM-DD" />
           </div>
+        </section>
+      </div>
+
+      <template id="databaseCardTemplate">
+        <div class="database-card">
+          <div class="database-header">
+            <div class="database-title">
+              <input type="text" class="db-name-input" placeholder="タブ名" />
+              <span class="db-key"></span>
+            </div>
+            <div class="database-controls">
+              <select class="db-kind-select">
+                <option value="task">タスク</option>
+                <option value="habit">習慣</option>
+              </select>
+              <label class="toggle-row">
+                <input type="checkbox" class="db-enabled-toggle" />
+                <span>有効</span>
+              </label>
+              <button class="btn danger db-delete-btn" type="button">削除</button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-block">
+              <label>Database ID</label>
+              <input type="text" class="db-database-id" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+              <div class="row">
+                <button class="btn ghost db-resolve-data-source" type="button">Data Source ID 自動取得</button>
+                <button class="btn ghost db-resolve-title" type="button">Title プロパティ自動検出</button>
+              </div>
+            </div>
+            <div class="form-block">
+              <label>Data Source ID</label>
+              <input type="text" class="db-data-source-id" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            </div>
+            <div class="form-block">
+              <label>Title プロパティ名</label>
+              <input type="text" class="db-title-property" placeholder="Name" />
+            </div>
+
+            <div class="db-fields" data-kind="task">
+              <div class="form-block">
+                <label>Status プロパティ名</label>
+                <input type="text" class="db-status-property" placeholder="Status" />
+              </div>
+              <div class="form-block">
+                <label>Status 型</label>
+                <select class="db-status-type">
+                  <option value="status">status</option>
+                  <option value="select">select</option>
+                </select>
+              </div>
+              <div class="form-block">
+                <label>進行中の値</label>
+                <input type="text" class="db-status-in-progress" placeholder="In Progress" />
+              </div>
+              <div class="form-block">
+                <label>完了の値</label>
+                <input type="text" class="db-status-done" placeholder="Done" />
+              </div>
+              <div class="form-block">
+                <label>中断の値</label>
+                <input type="text" class="db-status-paused" placeholder="Paused" />
+              </div>
+            </div>
+
+            <div class="db-fields" data-kind="habit">
+              <div class="form-block">
+                <label>曜日チェック列（自動）</label>
+                <input type="text" class="db-checkbox-property" placeholder="日,月,火,水,木,金,土" readonly />
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
+      </template>
 
       <footer class="footer">
         <div id="lastUpdated">未更新</div>

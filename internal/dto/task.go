@@ -7,4 +7,5 @@ type Task struct {
 	URL            string `json:"url"`
 	Status         string `json:"status"`
 	LastEditedTime string `json:"last_edited_time"`
+	Checked        bool   `json:"checked"`
 }

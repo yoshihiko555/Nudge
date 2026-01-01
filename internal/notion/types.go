@@ -14,10 +14,11 @@ type page struct {
 }
 
 type propertyValue struct {
-	Type   string `json:"type"`
-	Title  []text `json:"title"`
-	Status *name  `json:"status"`
-	Select *name  `json:"select"`
+	Type     string `json:"type"`
+	Title    []text `json:"title"`
+	Status   *name  `json:"status"`
+	Select   *name  `json:"select"`
+	Checkbox *bool  `json:"checkbox"`
 }
 
 type text struct {
@@ -37,17 +38,22 @@ type databaseResponse struct {
 	} `json:"properties"`
 }
 
-func mapTasks(pages []page, titlePropertyName, statusPropertyName string) []dto.Task {
+func mapTasks(pages []page, titlePropertyName, statusPropertyName, checkboxPropertyName string) []dto.Task {
 	out := make([]dto.Task, 0, len(pages))
 	for _, p := range pages {
 		title := extractTitle(p.Properties[titlePropertyName])
 		status := extractStatus(p.Properties[statusPropertyName])
+		checked := false
+		if checkboxPropertyName != "" {
+			checked = extractCheckbox(p.Properties[checkboxPropertyName])
+		}
 		out = append(out, dto.Task{
 			ID:             p.ID,
 			Title:          title,
 			URL:            p.URL,
 			Status:         status,
 			LastEditedTime: p.LastEditedTime,
+			Checked:        checked,
 		})
 	}
 	return out
@@ -71,4 +77,11 @@ func extractStatus(prop propertyValue) string {
 		return prop.Select.Name
 	}
 	return ""
+}
+
+func extractCheckbox(prop propertyValue) bool {
+	if prop.Type != "checkbox" || prop.Checkbox == nil {
+		return false
+	}
+	return *prop.Checkbox
 }

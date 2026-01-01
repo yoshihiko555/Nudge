@@ -60,55 +60,94 @@ func NewClient(tokenStore store.TokenStore, opts ...Option) *Client {
 	return c
 }
 
-func (c *Client) QueryInProgress(ctx context.Context, cfg dto.Config) ([]dto.Task, error) {
-	if err := cfg.ValidateForQuery(); err != nil {
-		return nil, err
-	}
-	return c.QueryByStatus(ctx, cfg, cfg.StatusInProgress)
+func (c *Client) QueryInProgress(ctx context.Context, db dto.DatabaseConfig, notionVersion string, maxResults int) ([]dto.Task, error) {
+	return c.QueryByStatus(ctx, db, notionVersion, maxResults, db.StatusInProgress)
 }
 
-func (c *Client) QueryByStatus(ctx context.Context, cfg dto.Config, statusValue string) ([]dto.Task, error) {
-	if err := cfg.ValidateForStatusQuery(statusValue); err != nil {
+func (c *Client) QueryByStatus(ctx context.Context, db dto.DatabaseConfig, notionVersion string, maxResults int, statusValue string) ([]dto.Task, error) {
+	if err := db.ValidateForTaskQuery(notionVersion, statusValue); err != nil {
 		return nil, err
 	}
 	body := map[string]any{
-		"filter": buildStatusFilter(cfg.StatusPropertyName, cfg.StatusPropertyType, statusValue),
+		"filter": buildStatusFilter(db.StatusPropertyName, db.StatusPropertyType, statusValue),
 		"sorts": []map[string]any{{
 			"timestamp": "last_edited_time",
 			"direction": "descending",
 		}},
 	}
-	if cfg.MaxResults > 0 {
-		body["page_size"] = cfg.MaxResults
+	if maxResults > 0 {
+		body["page_size"] = maxResults
 	}
-	path := fmt.Sprintf("/v1/data_sources/%s/query", cfg.DataSourceID)
+	path := fmt.Sprintf("/v1/data_sources/%s/query", db.DataSourceID)
 	var resp queryResponse
-	if err := c.doJSON(ctx, http.MethodPost, path, body, &resp, cfg.NotionVersion); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, body, &resp, notionVersion); err != nil {
 		return nil, err
 	}
-	return mapTasks(resp.Results, cfg.TitlePropertyName, cfg.StatusPropertyName), nil
+	return mapTasks(resp.Results, db.TitlePropertyName, db.StatusPropertyName, ""), nil
 }
 
-func (c *Client) UpdateStatus(ctx context.Context, pageID string, cfg dto.Config, statusValue string) error {
-	if err := cfg.ValidateForUpdate(); err != nil {
+func (c *Client) UpdateStatus(ctx context.Context, pageID string, db dto.DatabaseConfig, notionVersion string, statusValue string) error {
+	if err := db.ValidateForTaskQuery(notionVersion, statusValue); err != nil {
 		return err
 	}
 	body := map[string]any{
 		"properties": map[string]any{
-			cfg.StatusPropertyName: buildStatusUpdate(cfg.StatusPropertyType, statusValue),
+			db.StatusPropertyName: buildStatusUpdate(db.StatusPropertyType, statusValue),
 		},
 	}
 	path := fmt.Sprintf("/v1/pages/%s", pageID)
-	return c.doJSON(ctx, http.MethodPatch, path, body, nil, cfg.NotionVersion)
+	return c.doJSON(ctx, http.MethodPatch, path, body, nil, notionVersion)
 }
 
-func (c *Client) ResolveDataSourceID(ctx context.Context, cfg dto.Config) (string, error) {
-	if cfg.DatabaseID == "" {
+func (c *Client) QueryHabitsToday(ctx context.Context, db dto.DatabaseConfig, checkboxPropertyName string, notionVersion string, maxResults int) ([]dto.Task, error) {
+	if err := db.ValidateForHabit(notionVersion); err != nil {
+		return nil, err
+	}
+	if checkboxPropertyName == "" {
+		return nil, fmt.Errorf("checkbox_property_name is required")
+	}
+	body := map[string]any{
+		"sorts": []map[string]any{{
+			"timestamp": "created_time",
+			"direction": "descending",
+		}},
+	}
+	if maxResults > 0 {
+		body["page_size"] = maxResults
+	}
+	path := fmt.Sprintf("/v1/data_sources/%s/query", db.DataSourceID)
+	var resp queryResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, body, &resp, notionVersion); err != nil {
+		return nil, err
+	}
+	return mapTasks(resp.Results, db.TitlePropertyName, "", checkboxPropertyName), nil
+}
+
+func (c *Client) UpdateCheckbox(ctx context.Context, pageID string, db dto.DatabaseConfig, checkboxPropertyName string, notionVersion string, checked bool) error {
+	if err := db.ValidateForHabit(notionVersion); err != nil {
+		return err
+	}
+	if checkboxPropertyName == "" {
+		return fmt.Errorf("checkbox_property_name is required")
+	}
+	body := map[string]any{
+		"properties": map[string]any{
+			checkboxPropertyName: map[string]any{
+				"checkbox": checked,
+			},
+		},
+	}
+	path := fmt.Sprintf("/v1/pages/%s", pageID)
+	return c.doJSON(ctx, http.MethodPatch, path, body, nil, notionVersion)
+}
+
+func (c *Client) ResolveDataSourceID(ctx context.Context, databaseID string, notionVersion string) (string, error) {
+	if databaseID == "" {
 		return "", fmt.Errorf("database_id is required")
 	}
 	var resp databaseResponse
-	path := fmt.Sprintf("/v1/databases/%s", cfg.DatabaseID)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, cfg.NotionVersion); err != nil {
+	path := fmt.Sprintf("/v1/databases/%s", databaseID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, notionVersion); err != nil {
 		return "", err
 	}
 	if len(resp.DataSources) == 0 {
@@ -120,13 +159,13 @@ func (c *Client) ResolveDataSourceID(ctx context.Context, cfg dto.Config) (strin
 	return resp.DataSources[0].ID, nil
 }
 
-func (c *Client) ResolveTitlePropertyName(ctx context.Context, cfg dto.Config) (string, error) {
-	if cfg.DatabaseID == "" {
+func (c *Client) ResolveTitlePropertyName(ctx context.Context, databaseID string, notionVersion string) (string, error) {
+	if databaseID == "" {
 		return "", fmt.Errorf("database_id is required")
 	}
 	var resp databaseResponse
-	path := fmt.Sprintf("/v1/databases/%s", cfg.DatabaseID)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, cfg.NotionVersion); err != nil {
+	path := fmt.Sprintf("/v1/databases/%s", databaseID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, notionVersion); err != nil {
 		return "", err
 	}
 	for name, prop := range resp.Properties {

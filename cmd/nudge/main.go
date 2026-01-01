@@ -44,12 +44,23 @@ type rpcResponse struct {
 }
 
 type getTasksPayload struct {
-	Status string `json:"status"`
+	DatabaseKey string `json:"database_key"`
 }
 
 type updateStatusPayload struct {
-	TaskID string `json:"task_id"`
-	Action string `json:"action"` // done | paused | resume
+	DatabaseKey string `json:"database_key"`
+	TaskID      string `json:"task_id"`
+	Action      string `json:"action"` // done | paused | resume
+}
+
+type getHabitsPayload struct {
+	DatabaseKey string `json:"database_key"`
+}
+
+type updateHabitPayload struct {
+	DatabaseKey string `json:"database_key"`
+	TaskID      string `json:"task_id"`
+	Checked     bool   `json:"checked"`
 }
 
 type resolvePayload struct {
@@ -121,13 +132,12 @@ func setupTray(app *application.App, window *application.WebviewWindow, cfg dto.
 	systray.SetLabel("")
 
 	menu := app.NewMenu()
-	menu.Add("進行中").OnClick(func(ctx *application.Context) {
-		// 画面遷移はフロントエンドへイベント通知
-		window.EmitEvent("view-change", "inprogress")
+	menu.Add("タスク").OnClick(func(ctx *application.Context) {
+		window.EmitEvent("view-change", "tasks")
 		window.Show()
 	})
-	menu.Add("中断").OnClick(func(ctx *application.Context) {
-		window.EmitEvent("view-change", "paused")
+	menu.Add("習慣").OnClick(func(ctx *application.Context) {
+		window.EmitEvent("view-change", "habits")
 		window.Show()
 	})
 	menu.Add("設定").OnClick(func(ctx *application.Context) {
@@ -276,30 +286,42 @@ func handleRawMessage(core *coreapp.App, app *application.App, window applicatio
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
-		statusValue := mapStatus(core.GetConfig(), payload.Status)
-		if statusValue == "" {
-			respond(rpcResponse{ID: req.ID, OK: false, Error: "status is not configured"})
-			return
-		}
-		tasks, err := core.QueryByStatus(ctx, statusValue)
+		tasks, err := core.QueryTasks(ctx, payload.DatabaseKey)
 		if err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true, Data: tasks})
+	case "getHabits":
+		var payload getHabitsPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		habits, err := core.QueryHabits(ctx, payload.DatabaseKey)
+		if err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		respond(rpcResponse{ID: req.ID, OK: true, Data: habits})
 	case "updateStatus":
 		var payload updateStatusPayload
 		if err := json.Unmarshal(req.Payload, &payload); err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
-		cfg := core.GetConfig()
-		statusValue := mapActionToStatus(cfg, payload.Action)
-		if statusValue == "" {
-			respond(rpcResponse{ID: req.ID, OK: false, Error: "status is not configured"})
+		if err := core.UpdateTaskStatus(ctx, payload.DatabaseKey, payload.TaskID, payload.Action); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
-		if err := core.UpdateTaskStatus(ctx, payload.TaskID, statusValue); err != nil {
+		respond(rpcResponse{ID: req.ID, OK: true})
+	case "updateHabitCheck":
+		var payload updateHabitPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		if err := core.UpdateHabitCheck(ctx, payload.DatabaseKey, payload.TaskID, payload.Checked); err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
@@ -336,30 +358,4 @@ func isTrustedOrigin(origin *application.OriginInfo) bool {
 	}
 	// 埋め込み webview 由来のみ許可
 	return strings.HasPrefix(origin.Origin, "wails://") || strings.HasPrefix(origin.Origin, "http://wails.localhost")
-}
-
-func mapStatus(cfg dto.Config, status string) string {
-	// フロントの表示用ステータスを実際の Notion 値に変換
-	switch status {
-	case "inprogress":
-		return cfg.StatusInProgress
-	case "paused":
-		return cfg.StatusPaused
-	default:
-		return ""
-	}
-}
-
-func mapActionToStatus(cfg dto.Config, action string) string {
-	// フロントのアクションを更新後のステータスに変換
-	switch action {
-	case "done":
-		return cfg.StatusDone
-	case "paused":
-		return cfg.StatusPaused
-	case "resume":
-		return cfg.StatusInProgress
-	default:
-		return ""
-	}
 }
