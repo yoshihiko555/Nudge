@@ -48,6 +48,12 @@ func (a *App) GetConfig() dto.Config {
 }
 
 func (a *App) SaveConfig(cfg dto.Config) error {
+	prev := a.currentConfig()
+	if prev.LaunchAtLogin != cfg.LaunchAtLogin {
+		if err := setLaunchAtLogin(cfg.LaunchAtLogin); err != nil {
+			return err
+		}
+	}
 	if err := a.cfgStore.Save(cfg); err != nil {
 		return err
 	}

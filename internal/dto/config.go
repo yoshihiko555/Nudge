@@ -14,6 +14,7 @@ type Config struct {
 	StatusPaused        string `json:"status_paused"`
 	PollIntervalSeconds int    `json:"poll_interval_seconds"`
 	MaxResults          int    `json:"max_results"`
+	LaunchAtLogin       bool   `json:"launch_at_login"`
 	TrayIconPath        string `json:"tray_icon_path"`
 	NotionVersion       string `json:"notion_version"`
 }

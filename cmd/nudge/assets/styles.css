@@ -441,7 +441,7 @@ label {
   letter-spacing: 0.5px;
 }
 
-input,
+input:not([type="checkbox"]),
 select {
   padding: 10px 14px;
   border-radius: 12px;
@@ -468,6 +468,24 @@ select:focus {
 input::placeholder {
   color: var(--muted);
   opacity: 0.6;
+}
+
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-text {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .row {

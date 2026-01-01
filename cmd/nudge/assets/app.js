@@ -16,6 +16,7 @@ const statusInProgressInput = document.getElementById('statusInProgressInput');
 const statusDoneInput = document.getElementById('statusDoneInput');
 const statusPausedInput = document.getElementById('statusPausedInput');
 const notionVersionInput = document.getElementById('notionVersionInput');
+const launchAtLoginInput = document.getElementById('launchAtLoginInput');
 
 const refreshBtn = document.getElementById('refreshBtn');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
@@ -195,24 +196,30 @@ async function loadConfig() {
   statusDoneInput.value = cfg.status_done || '';
   statusPausedInput.value = cfg.status_paused || '';
   notionVersionInput.value = cfg.notion_version || '';
+  launchAtLoginInput.checked = Boolean(cfg.launch_at_login);
 }
 
 async function saveConfig() {
-  const cfg = {
-    ...state.config,
-    database_id: databaseIdInput.value.trim(),
-    data_source_id: dataSourceIdInput.value.trim(),
-    title_property_name: titlePropertyInput.value.trim(),
-    status_property_name: statusPropertyInput.value.trim(),
-    status_property_type: statusTypeSelect.value,
-    status_in_progress: statusInProgressInput.value.trim(),
-    status_done: statusDoneInput.value.trim(),
-    status_paused: statusPausedInput.value.trim(),
-    notion_version: notionVersionInput.value.trim(),
-  };
-  await rpc('saveConfig', cfg);
-  state.config = cfg;
-  setError('');
+  try {
+    const cfg = {
+      ...state.config,
+      database_id: databaseIdInput.value.trim(),
+      data_source_id: dataSourceIdInput.value.trim(),
+      title_property_name: titlePropertyInput.value.trim(),
+      status_property_name: statusPropertyInput.value.trim(),
+      status_property_type: statusTypeSelect.value,
+      status_in_progress: statusInProgressInput.value.trim(),
+      status_done: statusDoneInput.value.trim(),
+      status_paused: statusPausedInput.value.trim(),
+      notion_version: notionVersionInput.value.trim(),
+      launch_at_login: launchAtLoginInput.checked,
+    };
+    await rpc('saveConfig', cfg);
+    state.config = cfg;
+    setError('');
+  } catch (err) {
+    setError(err.message);
+  }
 }
 
 async function refreshTokenStatus() {
