@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	coreapp "nudge/internal/app"
 	"nudge/internal/dto"
@@ -80,6 +81,7 @@ func main() {
 	_, _ = core.LoadConfig()
 
 	var app *application.App
+	var settingsWindow *application.WebviewWindow
 	app = application.New(application.Options{
 		Name:        coreapp.AppName,
 		Description: "Notion tasks in menu bar",
@@ -95,7 +97,7 @@ func main() {
 		},
 		// JS 側からの RPC を直接ハンドリング
 		RawMessageHandler: func(window application.Window, message string, origin *application.OriginInfo) {
-			handleRawMessage(core, app, window, message, origin)
+			handleRawMessage(core, app, settingsWindow, window, message, origin)
 		},
 	})
 
@@ -111,15 +113,30 @@ func main() {
 		URL:           "/index.html",
 	})
 
+	settingsWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      "settings",
+		Title:     coreapp.AppName + " 設定",
+		Width:     640,
+		Height:    720,
+		MinWidth:  520,
+		MinHeight: 600,
+		Hidden:    true,
+		URL:       "/index.html?mode=settings",
+	})
+	settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		event.Cancel()
+		settingsWindow.Hide()
+	})
+
 	// メニューバー（SystemTray）の初期化
-	setupTray(app, popover, core.GetConfig())
+	setupTray(app, popover, settingsWindow, core.GetConfig())
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func setupTray(app *application.App, window *application.WebviewWindow, cfg dto.Config) {
+func setupTray(app *application.App, window *application.WebviewWindow, settingsWindow *application.WebviewWindow, cfg dto.Config) {
 	// パス指定があれば PNG を直接読み込む（base64 変換不要）
 	icon := loadTrayIcon(cfg)
 	// メニューバー（SystemTray）を構成
@@ -141,8 +158,7 @@ func setupTray(app *application.App, window *application.WebviewWindow, cfg dto.
 		window.Show()
 	})
 	menu.Add("設定").OnClick(func(ctx *application.Context) {
-		window.EmitEvent("view-change", "settings")
-		window.Show()
+		showSettingsWindow(settingsWindow)
 	})
 	menu.AddSeparator()
 	menu.Add("更新").OnClick(func(ctx *application.Context) {
@@ -187,7 +203,7 @@ func resolveTrayIconPath(path string) string {
 	return filepath.Join(base, coreapp.AppName, path)
 }
 
-func handleRawMessage(core *coreapp.App, app *application.App, window application.Window, message string, origin *application.OriginInfo) {
+func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *application.WebviewWindow, window application.Window, message string, origin *application.OriginInfo) {
 	// 外部起点のメッセージは拒否
 	if !isTrustedOrigin(origin) {
 		return
@@ -341,9 +357,24 @@ func handleRawMessage(core *coreapp.App, app *application.App, window applicatio
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true})
+	case "openSettingsWindow":
+		if settingsWindow == nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: "settings window unavailable"})
+			return
+		}
+		showSettingsWindow(settingsWindow)
+		respond(rpcResponse{ID: req.ID, OK: true})
 	default:
 		respond(rpcResponse{ID: req.ID, OK: false, Error: "unknown action"})
 	}
+}
+
+func showSettingsWindow(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	window.Show()
+	window.Focus()
 }
 
 func isTrustedOrigin(origin *application.OriginInfo) bool {

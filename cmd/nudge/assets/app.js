@@ -17,17 +17,24 @@ const databaseCardTemplate = document.getElementById('databaseCardTemplate');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const saveTokenBtn = document.getElementById('saveTokenBtn');
 const clearTokenBtn = document.getElementById('clearTokenBtn');
+const openSettingsBtn = document.getElementById('openSettingsBtn');
+
+const wails = window.wails;
+const appMode = (() => {
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  return mode === 'settings' ? 'settings' : 'main';
+})();
+appEl.dataset.mode = appMode;
 
 let state = {
-  view: 'settings',
+  mode: appMode,
+  view: appMode === 'settings' ? 'settings' : null,
   config: null,
   tokenSet: false,
   pollTimer: null,
   paneMap: new Map(),
   dbMap: new Map(),
 };
-
-const wails = window.wails;
 
 function runtimeReady() {
   return wails && wails.System && wails.Events && wails.Events.On;
@@ -69,26 +76,23 @@ function rpc(action, payload = {}) {
 function setView(view) {
   const nextView = resolveView(view);
   state.view = nextView;
-  appEl.dataset.view = nextView;
+  appEl.dataset.view = nextView || '';
   tabNav.querySelectorAll('.tab').forEach((tab) => {
-    tab.classList.toggle('is-active', tab.dataset.view === nextView);
+    tab.classList.toggle('is-active', nextView && tab.dataset.view === nextView);
   });
   paneContainer.querySelectorAll('.pane').forEach((pane) => {
-    pane.classList.toggle('is-active', pane.dataset.pane === nextView);
+    pane.classList.toggle('is-active', nextView && pane.dataset.pane === nextView);
   });
 }
 
 function resolveView(view) {
-  if (!view) {
+  if (state.mode === 'settings') {
     return 'settings';
   }
-  if (view === 'settings') {
+  if (view && state.dbMap.has(view)) {
     return view;
   }
-  if (state.dbMap.has(view)) {
-    return view;
-  }
-  return 'settings';
+  return pickDefaultView();
 }
 
 function setError(message) {
@@ -129,9 +133,12 @@ function generateKey() {
 }
 
 function pickDefaultView() {
+  if (state.mode === 'settings') {
+    return 'settings';
+  }
   const enabled = (state.config?.databases || []).filter((db) => db.enabled);
   const task = enabled.find((db) => db.kind === 'task');
-  return task?.key || enabled[0]?.key || 'settings';
+  return task?.key || enabled[0]?.key || null;
 }
 
 function renderTabsAndPanes() {
@@ -140,64 +147,62 @@ function renderTabsAndPanes() {
   state.paneMap = new Map();
 
   tabNav.innerHTML = '';
-  databases.forEach((db) => {
-    const tab = document.createElement('button');
-    tab.className = 'tab';
-    tab.dataset.view = db.key;
-    tab.textContent = db.name || defaultDatabaseName(db.kind);
-    tabNav.appendChild(tab);
-  });
-
-  const settingsTab = document.createElement('button');
-  settingsTab.className = 'tab';
-  settingsTab.dataset.view = 'settings';
-  settingsTab.textContent = '設定';
-  tabNav.appendChild(settingsTab);
+  if (state.mode === 'main') {
+    databases.forEach((db) => {
+      const tab = document.createElement('button');
+      tab.className = 'tab';
+      tab.dataset.view = db.key;
+      tab.textContent = db.name || defaultDatabaseName(db.kind);
+      tabNav.appendChild(tab);
+    });
+  }
 
   const settingsPane = paneContainer.querySelector('.pane[data-pane="settings"]');
   paneContainer
     .querySelectorAll('.pane[data-pane]:not([data-pane="settings"])')
     .forEach((pane) => pane.remove());
 
-  databases.forEach((db) => {
-    const pane = document.createElement('section');
-    pane.className = 'pane';
-    pane.dataset.pane = db.key;
+  if (state.mode === 'main') {
+    databases.forEach((db) => {
+      const pane = document.createElement('section');
+      pane.className = 'pane';
+      pane.dataset.pane = db.key;
 
-    const header = document.createElement('div');
-    header.className = 'pane-header';
+      const header = document.createElement('div');
+      header.className = 'pane-header';
 
-    const headerText = document.createElement('div');
-    const title = document.createElement('h2');
-    title.textContent = db.name || defaultDatabaseName(db.kind);
-    const hint = document.createElement('p');
-    hint.className = 'hint';
-    hint.textContent =
-      db.kind === 'habit' ? '今日の習慣のみ表示' : '最新の更新から 60 秒おきに自動更新';
-    headerText.appendChild(title);
-    headerText.appendChild(hint);
+      const headerText = document.createElement('div');
+      const title = document.createElement('h2');
+      title.textContent = db.name || defaultDatabaseName(db.kind);
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent =
+        db.kind === 'habit' ? '今日の習慣のみ表示' : '最新の更新から 60 秒おきに自動更新';
+      headerText.appendChild(title);
+      headerText.appendChild(hint);
 
-    const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'btn ghost';
-    refreshBtn.textContent = '更新';
-    refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key));
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'btn ghost';
+      refreshBtn.textContent = '更新';
+      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key));
 
-    header.appendChild(headerText);
-    header.appendChild(refreshBtn);
+      header.appendChild(headerText);
+      header.appendChild(refreshBtn);
 
-    const list = document.createElement('div');
-    list.className = 'task-list';
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = db.kind === 'habit' ? '今日の習慣がありません' : 'タスクがありません';
+      const list = document.createElement('div');
+      list.className = 'task-list';
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = db.kind === 'habit' ? '今日の習慣がありません' : 'タスクがありません';
 
-    pane.appendChild(header);
-    pane.appendChild(list);
-    pane.appendChild(empty);
+      pane.appendChild(header);
+      pane.appendChild(list);
+      pane.appendChild(empty);
 
-    paneContainer.insertBefore(pane, settingsPane);
-    state.paneMap.set(db.key, { listEl: list, emptyEl: empty, kind: db.kind });
-  });
+      paneContainer.insertBefore(pane, settingsPane);
+      state.paneMap.set(db.key, { listEl: list, emptyEl: empty, kind: db.kind });
+    });
+  }
 }
 
 function renderDatabaseSettings(databases) {
@@ -433,7 +438,7 @@ async function refreshDatabaseView(dbKey) {
 }
 
 function refreshActiveView() {
-  if (!state.view || state.view === 'settings') {
+  if (state.mode === 'settings' || !state.view || state.view === 'settings') {
     return;
   }
   refreshDatabaseView(state.view);
@@ -466,6 +471,15 @@ async function openURL(url) {
   try {
     setError('');
     await rpc('openURL', { url });
+  } catch (err) {
+    setError(err.message);
+  }
+}
+
+async function openSettingsWindow() {
+  try {
+    setError('');
+    await rpc('openSettingsWindow');
   } catch (err) {
     setError(err.message);
   }
@@ -566,6 +580,9 @@ function addDatabase() {
 }
 
 function startPolling() {
+  if (state.mode === 'settings') {
+    return;
+  }
   if (state.pollTimer) {
     clearInterval(state.pollTimer);
   }
@@ -592,6 +609,9 @@ function bindUI() {
   saveTokenBtn.addEventListener('click', saveToken);
   clearTokenBtn.addEventListener('click', clearToken);
   addDatabaseBtn.addEventListener('click', addDatabase);
+  if (openSettingsBtn) {
+    openSettingsBtn.addEventListener('click', openSettingsWindow);
+  }
 
   wails.Events.On('view-change', (event) => {
     const view = event?.data;
@@ -618,8 +638,10 @@ async function init() {
   await refreshTokenStatus();
   bindUI();
   setView(pickDefaultView());
-  refreshActiveView();
-  startPolling();
+  if (state.mode === 'main') {
+    refreshActiveView();
+    startPolling();
+  }
 }
 
 init();
