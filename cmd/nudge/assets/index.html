@@ -20,6 +20,7 @@
         </div>
         <div class="header-actions">
           <div class="status-chip" id="statusChip">未接続</div>
+          <button class="btn ghost header-btn" id="openBrainBtn" type="button">Brain</button>
           <button class="icon-btn" id="openSettingsBtn" type="button" aria-label="設定を開く" title="設定を開く">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -73,10 +74,49 @@
             <div id="databaseList" class="database-list"></div>
           </div>
 
+          <div class="section-block">
+            <div class="section-header">
+              <h3>Brain</h3>
+            </div>
+            <div class="form-grid">
+              <div class="form-block">
+                <label>Brain Database ID</label>
+                <input type="text" id="brainDatabaseIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+              </div>
+              <div class="form-block">
+                <label>Brain Template Page ID</label>
+                <input type="text" id="brainTemplateIdInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+              </div>
+            </div>
+          </div>
+
           <div class="form-block">
             <label>Notion Version</label>
             <input type="text" id="notionVersionInput" placeholder="YYYY-MM-DD" />
           </div>
+        </section>
+
+        <section class="pane" data-pane="brain">
+          <div class="pane-header">
+            <div>
+              <h2>Brain メモ</h2>
+              <p class="hint">テンプレートから新規ページを作成</p>
+            </div>
+            <button class="btn" id="brainSubmitBtn" type="button">登録</button>
+          </div>
+
+          <div class="form-block">
+            <label>本文</label>
+            <textarea id="brainBodyInput" rows="10" placeholder="テンプレート本文を読み込みます"></textarea>
+            <p class="hint" id="brainTemplateHint">テンプレート読み込み待ち</p>
+          </div>
+
+          <div class="row">
+            <button class="btn ghost" id="brainReloadBtn" type="button">テンプレ再読み込み</button>
+            <button class="btn ghost" id="brainOpenTemplateBtn" type="button">テンプレートを開く</button>
+            <button class="btn ghost" id="brainOpenCreatedBtn" type="button" disabled>登録ページを開く</button>
+          </div>
+          <p class="hint" id="brainStatus"></p>
         </section>
       </div>
 

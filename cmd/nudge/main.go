@@ -72,6 +72,10 @@ type openURLPayload struct {
 	URL string `json:"url"`
 }
 
+type createBrainPagePayload struct {
+	Body string `json:"body"`
+}
+
 func main() {
 	// 永続化ストアと Notion クライアントの組み立て
 	cfgStore := store.NewFileConfigStore(coreapp.AppName)
@@ -82,6 +86,7 @@ func main() {
 
 	var app *application.App
 	var settingsWindow *application.WebviewWindow
+	var brainWindow *application.WebviewWindow
 	app = application.New(application.Options{
 		Name:        coreapp.AppName,
 		Description: "Notion tasks in menu bar",
@@ -97,7 +102,7 @@ func main() {
 		},
 		// JS 側からの RPC を直接ハンドリング
 		RawMessageHandler: func(window application.Window, message string, origin *application.OriginInfo) {
-			handleRawMessage(core, app, settingsWindow, window, message, origin)
+			handleRawMessage(core, app, settingsWindow, brainWindow, window, message, origin)
 		},
 	})
 
@@ -126,6 +131,21 @@ func main() {
 	settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
 		settingsWindow.Hide()
+	})
+
+	brainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      "brain",
+		Title:     coreapp.AppName + " Brain",
+		Width:     520,
+		Height:    640,
+		MinWidth:  480,
+		MinHeight: 560,
+		Hidden:    true,
+		URL:       "/index.html?mode=brain",
+	})
+	brainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		event.Cancel()
+		brainWindow.Hide()
 	})
 
 	// メニューバー（SystemTray）の初期化
@@ -203,7 +223,7 @@ func resolveTrayIconPath(path string) string {
 	return filepath.Join(base, coreapp.AppName, path)
 }
 
-func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *application.WebviewWindow, window application.Window, message string, origin *application.OriginInfo) {
+func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *application.WebviewWindow, brainWindow *application.WebviewWindow, window application.Window, message string, origin *application.OriginInfo) {
 	// 外部起点のメッセージは拒否
 	if !isTrustedOrigin(origin) {
 		return
@@ -296,6 +316,25 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true, Data: name})
+	case "getBrainTemplate":
+		tpl, err := core.GetBrainTemplate(ctx)
+		if err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		respond(rpcResponse{ID: req.ID, OK: true, Data: tpl})
+	case "createBrainPage":
+		var payload createBrainPagePayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		page, err := core.CreateBrainPage(ctx, payload.Body)
+		if err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		respond(rpcResponse{ID: req.ID, OK: true, Data: page})
 	case "getTasks":
 		var payload getTasksPayload
 		if err := json.Unmarshal(req.Payload, &payload); err != nil {
@@ -364,12 +403,27 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 		}
 		showSettingsWindow(settingsWindow)
 		respond(rpcResponse{ID: req.ID, OK: true})
+	case "openBrainWindow":
+		if brainWindow == nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: "brain window unavailable"})
+			return
+		}
+		showBrainWindow(brainWindow)
+		respond(rpcResponse{ID: req.ID, OK: true})
 	default:
 		respond(rpcResponse{ID: req.ID, OK: false, Error: "unknown action"})
 	}
 }
 
 func showSettingsWindow(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	window.Show()
+	window.Focus()
+}
+
+func showBrainWindow(window *application.WebviewWindow) {
 	if window == nil {
 		return
 	}

@@ -18,22 +18,39 @@ const saveConfigBtn = document.getElementById('saveConfigBtn');
 const saveTokenBtn = document.getElementById('saveTokenBtn');
 const clearTokenBtn = document.getElementById('clearTokenBtn');
 const openSettingsBtn = document.getElementById('openSettingsBtn');
+const openBrainBtn = document.getElementById('openBrainBtn');
+const brainDatabaseIdInput = document.getElementById('brainDatabaseIdInput');
+const brainTemplateIdInput = document.getElementById('brainTemplateIdInput');
+const brainBodyInput = document.getElementById('brainBodyInput');
+const brainSubmitBtn = document.getElementById('brainSubmitBtn');
+const brainReloadBtn = document.getElementById('brainReloadBtn');
+const brainOpenTemplateBtn = document.getElementById('brainOpenTemplateBtn');
+const brainOpenCreatedBtn = document.getElementById('brainOpenCreatedBtn');
+const brainTemplateHint = document.getElementById('brainTemplateHint');
+const brainStatus = document.getElementById('brainStatus');
 
 const wails = window.wails;
 const appMode = (() => {
   const mode = new URLSearchParams(window.location.search).get('mode');
-  return mode === 'settings' ? 'settings' : 'main';
+  if (mode === 'settings') {
+    return 'settings';
+  }
+  if (mode === 'brain') {
+    return 'brain';
+  }
+  return 'main';
 })();
 appEl.dataset.mode = appMode;
 
 let state = {
   mode: appMode,
-  view: appMode === 'settings' ? 'settings' : null,
+  view: appMode === 'settings' ? 'settings' : appMode === 'brain' ? 'brain' : null,
   config: null,
   tokenSet: false,
   pollTimer: null,
   paneMap: new Map(),
   dbMap: new Map(),
+  brainLastCreatedURL: '',
 };
 
 function runtimeReady() {
@@ -74,6 +91,14 @@ function rpc(action, payload = {}) {
 }
 
 function setView(view) {
+  if (state.mode === 'brain') {
+    state.view = 'brain';
+    appEl.dataset.view = 'brain';
+    paneContainer.querySelectorAll('.pane').forEach((pane) => {
+      pane.classList.toggle('is-active', pane.dataset.pane === 'brain');
+    });
+    return;
+  }
   const nextView = resolveView(view);
   state.view = nextView;
   appEl.dataset.view = nextView || '';
@@ -88,6 +113,9 @@ function setView(view) {
 function resolveView(view) {
   if (state.mode === 'settings') {
     return 'settings';
+  }
+  if (state.mode === 'brain') {
+    return 'brain';
   }
   if (view && state.dbMap.has(view)) {
     return view;
@@ -136,6 +164,9 @@ function pickDefaultView() {
   if (state.mode === 'settings') {
     return 'settings';
   }
+  if (state.mode === 'brain') {
+    return 'brain';
+  }
   const enabled = (state.config?.databases || []).filter((db) => db.enabled);
   const task = enabled.find((db) => db.kind === 'task');
   return task?.key || enabled[0]?.key || null;
@@ -159,7 +190,7 @@ function renderTabsAndPanes() {
 
   const settingsPane = paneContainer.querySelector('.pane[data-pane="settings"]');
   paneContainer
-    .querySelectorAll('.pane[data-pane]:not([data-pane="settings"])')
+    .querySelectorAll('.pane[data-pane]:not([data-pane="settings"]):not([data-pane="brain"])')
     .forEach((pane) => pane.remove());
 
   if (state.mode === 'main') {
@@ -438,7 +469,7 @@ async function refreshDatabaseView(dbKey) {
 }
 
 function refreshActiveView() {
-  if (state.mode === 'settings' || !state.view || state.view === 'settings') {
+  if (state.mode === 'settings' || state.mode === 'brain' || !state.view || state.view === 'settings') {
     return;
   }
   refreshDatabaseView(state.view);
@@ -485,11 +516,102 @@ async function openSettingsWindow() {
   }
 }
 
+async function openBrainWindow() {
+  try {
+    setError('');
+    await rpc('openBrainWindow');
+  } catch (err) {
+    setError(err.message);
+  }
+}
+
+function normalizeNotionId(value) {
+  return (value || '').replace(/-/g, '').trim();
+}
+
+async function loadBrainTemplate() {
+  if (!brainBodyInput) {
+    return;
+  }
+  if (brainTemplateHint) {
+    brainTemplateHint.textContent = 'テンプレート読み込み中...';
+  }
+  if (brainStatus) {
+    brainStatus.textContent = '';
+  }
+  if (brainOpenCreatedBtn) {
+    brainOpenCreatedBtn.disabled = true;
+  }
+  try {
+    const tpl = await rpc('getBrainTemplate');
+    brainBodyInput.value = tpl?.body || '';
+    if (brainTemplateHint) {
+      brainTemplateHint.textContent = 'テンプレートを読み込みました';
+    }
+  } catch (err) {
+    setError(err.message);
+    if (brainTemplateHint) {
+      brainTemplateHint.textContent = 'テンプレートの読み込みに失敗しました';
+    }
+  }
+}
+
+async function openBrainTemplate() {
+  const raw = brainTemplateIdInput?.value || state.config?.brain_template_page_id || '';
+  const id = normalizeNotionId(raw);
+  if (!id) {
+    setError('Brain Template Page ID を入力してください');
+    return;
+  }
+  await openURL(`https://www.notion.so/${id}`);
+}
+
+async function createBrainPage() {
+  if (!brainBodyInput) {
+    return;
+  }
+  const body = brainBodyInput.value || '';
+  if (brainSubmitBtn) {
+    brainSubmitBtn.disabled = true;
+  }
+  if (brainStatus) {
+    brainStatus.textContent = '登録中...';
+  }
+  if (brainOpenCreatedBtn) {
+    brainOpenCreatedBtn.disabled = true;
+  }
+  try {
+    const page = await rpc('createBrainPage', { body });
+    state.brainLastCreatedURL = page?.url || '';
+    if (brainStatus) {
+      brainStatus.textContent = page?.url ? '登録しました（Notionで開けます）' : '登録しました';
+    }
+    if (brainOpenCreatedBtn) {
+      brainOpenCreatedBtn.disabled = !page?.url;
+    }
+  } catch (err) {
+    setError(err.message);
+    if (brainStatus) {
+      brainStatus.textContent = '登録に失敗しました';
+    }
+  } finally {
+    if (brainSubmitBtn) {
+      brainSubmitBtn.disabled = false;
+    }
+  }
+}
+
 async function loadConfig() {
   const cfg = await rpc('getConfig');
   state.config = cfg;
   launchAtLoginInput.checked = Boolean(cfg.launch_at_login);
   notionVersionInput.value = cfg.notion_version || '';
+  if (brainDatabaseIdInput) {
+    brainDatabaseIdInput.value = cfg.brain_database_id || '';
+  }
+  if (brainTemplateIdInput) {
+    brainTemplateIdInput.value = cfg.brain_template_page_id || '';
+  }
   renderDatabaseSettings(cfg.databases || []);
   renderTabsAndPanes();
 }
@@ -500,6 +622,8 @@ async function saveConfig() {
     databases: collectDatabases(),
     launch_at_login: launchAtLoginInput.checked,
     notion_version: notionVersionInput.value.trim(),
+    brain_database_id: brainDatabaseIdInput?.value.trim() || '',
+    brain_template_page_id: brainTemplateIdInput?.value.trim() || '',
   };
   await rpc('saveConfig', cfg);
   state.config = cfg;
@@ -580,7 +704,7 @@ function addDatabase() {
 }
 
 function startPolling() {
-  if (state.mode === 'settings') {
+  if (state.mode === 'settings' || state.mode === 'brain') {
     return;
   }
   if (state.pollTimer) {
@@ -612,6 +736,27 @@ function bindUI() {
   if (openSettingsBtn) {
     openSettingsBtn.addEventListener('click', openSettingsWindow);
   }
+  if (openBrainBtn) {
+    openBrainBtn.addEventListener('click', openBrainWindow);
+  }
+  if (brainReloadBtn) {
+    brainReloadBtn.addEventListener('click', loadBrainTemplate);
+  }
+  if (brainOpenTemplateBtn) {
+    brainOpenTemplateBtn.addEventListener('click', openBrainTemplate);
+  }
+  if (brainOpenCreatedBtn) {
+    brainOpenCreatedBtn.addEventListener('click', () => {
+      if (state.brainLastCreatedURL) {
+        openURL(state.brainLastCreatedURL);
+      } else {
+        setError('登録ページがありません');
+      }
+    });
+  }
+  if (brainSubmitBtn) {
+    brainSubmitBtn.addEventListener('click', createBrainPage);
+  }
 
   wails.Events.On('view-change', (event) => {
     const view = event?.data;
@@ -638,6 +783,10 @@ async function init() {
   await refreshTokenStatus();
   bindUI();
   setView(pickDefaultView());
+  if (state.mode === 'brain') {
+    await loadBrainTemplate();
+    return;
+  }
   if (state.mode === 'main') {
     refreshActiveView();
     startPolling();

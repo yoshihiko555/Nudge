@@ -36,6 +36,8 @@ type Config struct {
 	LaunchAtLogin       bool             `json:"launch_at_login"`
 	TrayIconPath        string           `json:"tray_icon_path"`
 	NotionVersion       string           `json:"notion_version"`
+	BrainDatabaseID     string           `json:"brain_database_id"`
+	BrainTemplatePageID string           `json:"brain_template_page_id"`
 }
 
 func DefaultConfig() Config {

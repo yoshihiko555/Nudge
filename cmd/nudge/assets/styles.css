@@ -97,6 +97,11 @@ body {
   gap: 8px;
 }
 
+.header-actions .header-btn {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
 .icon-btn {
   width: 28px;
   height: 28px;
@@ -583,7 +588,8 @@ label {
 }
 
 input:not([type="checkbox"]),
-select {
+select,
+textarea {
   padding: 10px 14px;
   border-radius: 12px;
   border: 1px solid var(--border-glass);
@@ -599,7 +605,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow:
@@ -608,7 +615,8 @@ select:focus {
   background: rgba(255, 255, 255, 0.9);
 }
 
-input::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: var(--muted);
   opacity: 0.6;
 }
@@ -626,6 +634,27 @@ input[type="checkbox"] {
   height: 18px;
   accent-color: var(--accent);
   margin: 0;
+}
+
+textarea {
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 180px;
+}
+
+#app[data-mode="brain"] .tabs,
+#app[data-mode="brain"] #openSettingsBtn,
+#app[data-mode="brain"] #openBrainBtn {
+  display: none;
+}
+
+#app[data-mode="brain"] .pane[data-pane="settings"] {
+  display: none;
+}
+
+#app[data-mode="settings"] #openBrainBtn {
+  display: none;
 }
 
 .toggle-row {
@@ -735,7 +764,8 @@ input[type="checkbox"] {
   }
 
   input,
-  select {
+  select,
+  textarea {
     background: rgba(58, 58, 60, 0.85) !important;
     border-color: rgba(255, 255, 255, 0.15) !important;
     color: #f5f5f7 !important;
@@ -743,11 +773,13 @@ input[type="checkbox"] {
   }
 
   input:focus,
-  select:focus {
+  select:focus,
+  textarea:focus {
     background: rgba(72, 72, 74, 0.95) !important;
   }
 
-  input::placeholder {
+  input::placeholder,
+  textarea::placeholder {
     color: #98989d !important;
     -webkit-text-fill-color: #98989d !important;
     opacity: 1 !important;

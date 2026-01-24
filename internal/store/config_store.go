@@ -59,6 +59,8 @@ func (s *FileConfigStore) Load() (dto.Config, error) {
 		LaunchAtLogin       bool                 `json:"launch_at_login"`
 		TrayIconPath        string               `json:"tray_icon_path"`
 		NotionVersion       string               `json:"notion_version"`
+		BrainDatabaseID     string               `json:"brain_database_id"`
+		BrainTemplatePageID string               `json:"brain_template_page_id"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
@@ -102,6 +104,8 @@ func (s *FileConfigStore) Load() (dto.Config, error) {
 	if raw.NotionVersion != "" {
 		cfg.NotionVersion = raw.NotionVersion
 	}
+	cfg.BrainDatabaseID = raw.BrainDatabaseID
+	cfg.BrainTemplatePageID = raw.BrainTemplatePageID
 	return cfg.Normalize(), nil
 }
 

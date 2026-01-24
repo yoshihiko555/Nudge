@@ -35,5 +35,7 @@
   "max_results": 30,
   "launch_at_login": false,
   "tray_icon_path": "",
-  "notion_version": ""
+  "notion_version": "",
+  "brain_database_id": "",
+  "brain_template_page_id": ""
 }

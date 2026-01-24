@@ -7,6 +7,7 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
 - 完了 / 中断へのステータス更新
 - 手動更新と自動ポーリング
 - Notion 設定の UI からの保存
+- Brain データベースへのメモ追加（テンプレート起点）
 
 ## 前提
 - Notion のタスクは Database で管理されている
@@ -33,6 +34,8 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
    - Title / Status プロパティ名
    - Status 型（`status` / `select`）
    - 進行中 / 完了 / 中断 の値
+   - Brain Database ID
+   - Brain Template Page ID
    - Notion Version（`YYYY-MM-DD`）
 
 ## 設定ファイル
@@ -41,17 +44,28 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
 - 例:
   ```json
   {
-    "database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "data_source_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "title_property_name": "Name",
-    "status_property_name": "Status",
-    "status_property_type": "status",
-    "status_in_progress": "In Progress",
-    "status_done": "Done",
-    "status_paused": "Paused",
+    "databases": [
+      {
+        "key": "tasks",
+        "name": "タスク",
+        "kind": "task",
+        "enabled": true,
+        "database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "data_source_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "title_property_name": "Name",
+        "status_property_name": "Status",
+        "status_property_type": "status",
+        "status_in_progress": "In Progress",
+        "status_done": "Done",
+        "status_paused": "Paused",
+        "checkbox_property_name": ""
+      }
+    ],
     "poll_interval_seconds": 60,
     "max_results": 30,
-    "notion_version": "YYYY-MM-DD"
+    "notion_version": "YYYY-MM-DD",
+    "brain_database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "brain_template_page_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   }
   ```
 
@@ -63,6 +77,9 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
 ```sh
 # 開発モード（デフォルト Vite ポート 9245）
 task dev
+
+# task dev が動かない場合
+wails3 task run dev
 
 # 現在の OS 向けに実行
 task run
