@@ -215,7 +215,7 @@ function renderTabsAndPanes() {
       const refreshBtn = document.createElement('button');
       refreshBtn.className = 'btn ghost';
       refreshBtn.textContent = '更新';
-      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key));
+      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key, true));
 
       header.appendChild(headerText);
       header.appendChild(refreshBtn);
@@ -447,7 +447,7 @@ function renderHabits(listEl, emptyEl, habits, dbKey) {
   });
 }
 
-async function refreshDatabaseView(dbKey) {
+async function refreshDatabaseView(dbKey, force = false) {
   const pane = state.paneMap.get(dbKey);
   const db = state.dbMap.get(dbKey);
   if (!pane || !db) {
@@ -456,10 +456,10 @@ async function refreshDatabaseView(dbKey) {
   try {
     setError('');
     if (db.kind === 'habit') {
-      const habits = await rpc('getHabits', { database_key: dbKey });
+      const habits = await rpc('getHabits', { database_key: dbKey, force_refresh: force });
       renderHabits(pane.listEl, pane.emptyEl, habits, dbKey);
     } else {
-      const tasks = await rpc('getTasks', { database_key: dbKey });
+      const tasks = await rpc('getTasks', { database_key: dbKey, force_refresh: force });
       renderTasks(pane.listEl, pane.emptyEl, tasks, dbKey);
     }
     lastUpdated.textContent = `更新 ${formatTime(new Date().toISOString())}`;
@@ -468,18 +468,18 @@ async function refreshDatabaseView(dbKey) {
   }
 }
 
-function refreshActiveView() {
+function refreshActiveView(force = false) {
   if (state.mode === 'settings' || state.mode === 'brain' || !state.view || state.view === 'settings') {
     return;
   }
-  refreshDatabaseView(state.view);
+  refreshDatabaseView(state.view, force);
 }
 
 async function updateTaskStatus(taskID, action, dbKey) {
   try {
     setError('');
     await rpc('updateStatus', { database_key: dbKey, task_id: taskID, action });
-    await refreshDatabaseView(dbKey);
+    await refreshDatabaseView(dbKey, true);
   } catch (err) {
     setError(err.message);
   }
@@ -490,7 +490,7 @@ async function updateHabitCheck(dbKey, taskID, checkbox) {
     setError('');
     checkbox.disabled = true;
     await rpc('updateHabitCheck', { database_key: dbKey, task_id: taskID, checked: true });
-    await refreshDatabaseView(dbKey);
+    await refreshDatabaseView(dbKey, true);
   } catch (err) {
     checkbox.disabled = false;
     checkbox.checked = false;
@@ -712,7 +712,7 @@ function startPolling() {
   }
   const interval = (state.config?.poll_interval_seconds || 60) * 1000;
   state.pollTimer = setInterval(() => {
-    refreshActiveView();
+    refreshActiveView(false);
   }, interval);
 }
 
@@ -769,7 +769,7 @@ function bindUI() {
   });
 
   wails.Events.On('refresh', () => {
-    refreshActiveView();
+    refreshActiveView(true);
   });
 }
 

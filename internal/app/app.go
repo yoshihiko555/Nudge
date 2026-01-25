@@ -14,10 +14,16 @@ import (
 )
 
 type App struct {
-	cfgStore   store.ConfigStore
-	tokenStore store.TokenStore
-	notion     *notion.Client
-	poller     *syncer.Poller
+	cfgStore     store.ConfigStore
+	tokenStore   store.TokenStore
+	notion       *notion.Client
+	poller       *syncer.Poller
+	pollerCancel context.CancelFunc
+	pollerMu     sync.Mutex
+	refreshMu    sync.Mutex
+	cacheMu      sync.Mutex
+	taskCache    map[string][]dto.Task
+	habitCache   map[string][]dto.Task
 
 	mu  sync.Mutex
 	cfg dto.Config
@@ -28,6 +34,8 @@ func NewApp(cfgStore store.ConfigStore, tokenStore store.TokenStore, notionClien
 		cfgStore:   cfgStore,
 		tokenStore: tokenStore,
 		notion:     notionClient,
+		taskCache:  make(map[string][]dto.Task),
+		habitCache: make(map[string][]dto.Task),
 	}
 }
 
@@ -114,6 +122,20 @@ func (a *App) QueryTasks(ctx context.Context, databaseKey string) ([]dto.Task, e
 	return a.notion.QueryByStatus(ctx, db, cfg.NotionVersion, cfg.MaxResults, db.StatusInProgress)
 }
 
+func (a *App) GetTasks(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
+	if !force {
+		if tasks, ok := a.getTaskCache(databaseKey); ok {
+			return tasks, nil
+		}
+	}
+	tasks, err := a.QueryTasks(ctx, databaseKey)
+	if err != nil {
+		return nil, err
+	}
+	a.setTaskCache(databaseKey, tasks)
+	return tasks, nil
+}
+
 func (a *App) QueryHabits(ctx context.Context, databaseKey string) ([]dto.Task, error) {
 	db, cfg, err := a.resolveDatabase(databaseKey, dto.DatabaseKindHabit)
 	if err != nil {
@@ -135,6 +157,20 @@ func (a *App) QueryHabits(ctx context.Context, databaseKey string) ([]dto.Task, 
 		return nil, err
 	}
 	return filterUnchecked(uniqueTasksByTitle(tasks)), nil
+}
+
+func (a *App) GetHabits(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
+	if !force {
+		if habits, ok := a.getHabitCache(databaseKey); ok {
+			return habits, nil
+		}
+	}
+	habits, err := a.QueryHabits(ctx, databaseKey)
+	if err != nil {
+		return nil, err
+	}
+	a.setHabitCache(databaseKey, habits)
+	return habits, nil
 }
 
 func (a *App) UpdateHabitCheck(ctx context.Context, databaseKey, taskID string, checked bool) error {
@@ -189,7 +225,9 @@ func (a *App) CreateBrainPage(ctx context.Context, body string) (dto.CreatedPage
 }
 
 func (a *App) StartPolling(ctx context.Context, refresh func([]dto.Task)) error {
-	a.StopPolling()
+	a.pollerMu.Lock()
+	defer a.pollerMu.Unlock()
+	a.stopPollingLocked()
 	cfg := a.currentConfig()
 	interval := time.Duration(cfg.PollIntervalSeconds) * time.Second
 	if interval <= 0 {
@@ -213,17 +251,130 @@ func (a *App) StartPolling(ctx context.Context, refresh func([]dto.Task)) error 
 	return nil
 }
 
+func (a *App) StartBackgroundPolling() {
+	a.pollerMu.Lock()
+	defer a.pollerMu.Unlock()
+	a.stopPollingLocked()
+
+	cfg := a.currentConfig()
+	interval := time.Duration(cfg.PollIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &syncer.Poller{
+		Interval: interval,
+		Refresh: func(ctx context.Context) error {
+			return a.refreshAll(ctx)
+		},
+	}
+	a.poller = p
+	a.pollerCancel = cancel
+
+	go func() {
+		_ = a.refreshAll(ctx)
+	}()
+	p.Start(ctx)
+}
+
 func (a *App) StopPolling() {
+	a.pollerMu.Lock()
+	defer a.pollerMu.Unlock()
+	a.stopPollingLocked()
+}
+
+func (a *App) stopPollingLocked() {
 	if a.poller == nil {
 		return
 	}
 	a.poller.Stop()
+	a.poller = nil
+	if a.pollerCancel != nil {
+		a.pollerCancel()
+		a.pollerCancel = nil
+	}
 }
 
 func (a *App) currentConfig() dto.Config {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.cfg
+}
+
+func (a *App) refreshAll(ctx context.Context) error {
+	a.refreshMu.Lock()
+	defer a.refreshMu.Unlock()
+
+	cfg := a.currentConfig()
+	var firstErr error
+	for _, db := range cfg.Databases {
+		if !db.Enabled {
+			continue
+		}
+		switch db.Kind {
+		case dto.DatabaseKindHabit:
+			habits, err := a.QueryHabits(ctx, db.Key)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			a.setHabitCache(db.Key, habits)
+		default:
+			tasks, err := a.QueryTasks(ctx, db.Key)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			a.setTaskCache(db.Key, tasks)
+		}
+	}
+	return firstErr
+}
+
+func (a *App) getTaskCache(key string) ([]dto.Task, bool) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	tasks, ok := a.taskCache[key]
+	if !ok {
+		return nil, false
+	}
+	return cloneTasks(tasks), true
+}
+
+func (a *App) setTaskCache(key string, tasks []dto.Task) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	a.taskCache[key] = cloneTasks(tasks)
+}
+
+func (a *App) getHabitCache(key string) ([]dto.Task, bool) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	habits, ok := a.habitCache[key]
+	if !ok {
+		return nil, false
+	}
+	return cloneTasks(habits), true
+}
+
+func (a *App) setHabitCache(key string, habits []dto.Task) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	a.habitCache[key] = cloneTasks(habits)
+}
+
+func cloneTasks(tasks []dto.Task) []dto.Task {
+	if tasks == nil {
+		return nil
+	}
+	out := make([]dto.Task, len(tasks))
+	copy(out, tasks)
+	return out
 }
 
 func (a *App) resolveDatabase(key, kind string) (dto.DatabaseConfig, dto.Config, error) {

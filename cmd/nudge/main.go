@@ -45,7 +45,8 @@ type rpcResponse struct {
 }
 
 type getTasksPayload struct {
-	DatabaseKey string `json:"database_key"`
+	DatabaseKey  string `json:"database_key"`
+	ForceRefresh bool   `json:"force_refresh"`
 }
 
 type updateStatusPayload struct {
@@ -55,7 +56,8 @@ type updateStatusPayload struct {
 }
 
 type getHabitsPayload struct {
-	DatabaseKey string `json:"database_key"`
+	DatabaseKey  string `json:"database_key"`
+	ForceRefresh bool   `json:"force_refresh"`
 }
 
 type updateHabitPayload struct {
@@ -83,6 +85,7 @@ func main() {
 	notionClient := notion.NewClient(tokenStore)
 	core := coreapp.NewApp(cfgStore, tokenStore, notionClient)
 	_, _ = core.LoadConfig()
+	core.StartBackgroundPolling()
 
 	var app *application.App
 	var settingsWindow *application.WebviewWindow
@@ -261,6 +264,7 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
+		core.StartBackgroundPolling()
 		respond(rpcResponse{ID: req.ID, OK: true})
 	case "getTokenStatus":
 		token, err := core.GetToken()
@@ -341,7 +345,7 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
-		tasks, err := core.QueryTasks(ctx, payload.DatabaseKey)
+		tasks, err := core.GetTasks(ctx, payload.DatabaseKey, payload.ForceRefresh)
 		if err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
@@ -353,7 +357,7 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
-		habits, err := core.QueryHabits(ctx, payload.DatabaseKey)
+		habits, err := core.GetHabits(ctx, payload.DatabaseKey, payload.ForceRefresh)
 		if err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
