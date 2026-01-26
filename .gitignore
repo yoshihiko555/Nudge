@@ -37,3 +37,6 @@ dist/
 
 # Task
 .task/
+
+# Homebrew tap workspace
+homebrew-nudge/
