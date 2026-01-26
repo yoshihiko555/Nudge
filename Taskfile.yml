@@ -24,6 +24,20 @@ tasks:
     cmds:
       - task: "{{OS}}:package"
 
+  dmg:
+    summary: Creates a DMG for macOS
+    cmds:
+      - task: "{{OS}}:dmg"
+        vars:
+          VERSION: "{{.VERSION}}"
+
+  dmg:sha256:
+    summary: Prints SHA256 for the DMG
+    cmds:
+      - task: "{{OS}}:dmg:sha256"
+        vars:
+          VERSION: "{{.VERSION}}"
+
   run:
     summary: Runs the application
     cmds:

@@ -127,6 +127,27 @@ tasks:
     cmds:
       - task: create:app:bundle
 
+  dmg:
+    summary: Creates a DMG from the `.app` bundle
+    deps:
+      - task: package
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION is required. Example: task dmg VERSION=0.0.1"
+    cmds:
+      - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+      - hdiutil create -volname "{{.APP_NAME}}" -srcfolder "{{.BIN_DIR}}/{{.APP_NAME}}.app" -ov -format UDZO "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+
+  dmg:sha256:
+    summary: Prints SHA256 for the DMG
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION is required. Example: task dmg:sha256 VERSION=0.0.1"
+      - sh: '[ -f "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg" ]'
+        msg: "DMG not found. Run: task dmg VERSION=0.0.1"
+    cmds:
+      - shasum -a 256 "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+
 
   create:app:bundle:
     summary: Creates an `.app` bundle
