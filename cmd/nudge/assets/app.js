@@ -808,19 +808,47 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
-  const cfg = {
-    ...state.config,
-    databases: collectDatabases(),
-    launch_at_login: launchAtLoginInput.checked,
-    brain_database_id: brainDatabaseIdInput?.value.trim() || '',
-    brain_template_page_id: brainTemplateIdInput?.value.trim() || '',
-  };
-  await rpc('saveConfig', cfg);
-  state.config = cfg;
-  renderTabsAndPanes();
-  const nextView = state.dbMap.has(state.view) ? state.view : pickDefaultView();
-  setView(nextView);
-  setError('');
+  if (saveConfigBtn) {
+    saveConfigBtn.disabled = true;
+    saveConfigBtn.classList.remove('is-saved', 'is-error');
+    saveConfigBtn.classList.add('is-saving');
+  }
+  try {
+    const cfg = {
+      ...state.config,
+      databases: collectDatabases(),
+      launch_at_login: launchAtLoginInput.checked,
+      brain_database_id: brainDatabaseIdInput?.value.trim() || '',
+      brain_template_page_id: brainTemplateIdInput?.value.trim() || '',
+    };
+    await rpc('saveConfig', cfg);
+    state.config = cfg;
+    renderTabsAndPanes();
+    const nextView = state.dbMap.has(state.view) ? state.view : pickDefaultView();
+    setView(nextView);
+    setError('');
+    if (saveConfigBtn) {
+      saveConfigBtn.classList.remove('is-saving');
+      saveConfigBtn.classList.add('is-saved');
+      window.setTimeout(() => {
+        saveConfigBtn?.classList.remove('is-saved');
+      }, 700);
+    }
+  } catch (err) {
+    setError(err.message);
+    if (saveConfigBtn) {
+      saveConfigBtn.classList.remove('is-saving');
+      saveConfigBtn.classList.add('is-error');
+      window.setTimeout(() => {
+        saveConfigBtn?.classList.remove('is-error');
+      }, 700);
+    }
+  } finally {
+    if (saveConfigBtn) {
+      saveConfigBtn.disabled = false;
+      saveConfigBtn.classList.remove('is-saving');
+    }
+  }
 }
 
 async function refreshTokenStatus() {
