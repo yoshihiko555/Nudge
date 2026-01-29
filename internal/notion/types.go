@@ -49,9 +49,25 @@ type databaseResponse struct {
 	DataSources []struct {
 		ID string `json:"id"`
 	} `json:"data_sources"`
-	Properties map[string]struct {
-		Type string `json:"type"`
-	} `json:"properties"`
+	Properties map[string]propertySchema `json:"properties"`
+}
+
+type databaseOption struct {
+	Name string `json:"name"`
+}
+
+type propertySchema struct {
+	Type   string `json:"type"`
+	Status *struct {
+		Options []databaseOption `json:"options"`
+	} `json:"status"`
+	Select *struct {
+		Options []databaseOption `json:"options"`
+	} `json:"select"`
+}
+
+type dataSourceResponse struct {
+	Properties map[string]propertySchema `json:"properties"`
 }
 
 type blocksResponse struct {

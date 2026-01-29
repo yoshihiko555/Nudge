@@ -88,9 +88,6 @@ func (d DatabaseConfig) ValidateForTaskQuery(notionVersion string, statusValue s
 	if statusValue == "" {
 		return fmt.Errorf("status value is required")
 	}
-	if notionVersion == "" {
-		return fmt.Errorf("notion_version is required")
-	}
 	if d.StatusPropertyType != "status" && d.StatusPropertyType != "select" {
 		return fmt.Errorf("status_property_type must be 'status' or 'select'")
 	}
@@ -103,9 +100,6 @@ func (d DatabaseConfig) ValidateForHabit(notionVersion string) error {
 	}
 	if d.TitlePropertyName == "" {
 		return fmt.Errorf("title_property_name is required")
-	}
-	if notionVersion == "" {
-		return fmt.Errorf("notion_version is required")
 	}
 	return nil
 }

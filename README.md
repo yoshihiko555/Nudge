@@ -12,7 +12,6 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
 ## 前提
 - Notion のタスクは Database で管理されている
 - Integration を作成し、対象 Database を共有済み
-- Notion API のバージョン（`YYYY-MM-DD`）を指定する
 
 ## 動作環境・必須ツール
 - macOS
@@ -31,12 +30,11 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
    - Notion API トークン
    - Database ID
    - Data Source ID（ボタンで自動取得可）
-   - Title / Status プロパティ名
+   - Title / Status プロパティ名（プロパティ一覧から選択可）
    - Status 型（`status` / `select`）
    - 進行中 / 完了 / 中断 の値
    - Brain Database ID
    - Brain Template Page ID
-   - Notion Version（`YYYY-MM-DD`）
 
 ## 設定ファイル
 - 保存先: `~/Library/Application Support/Nudge/config.json`
@@ -63,7 +61,6 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
     ],
     "poll_interval_seconds": 60,
     "max_results": 30,
-    "notion_version": "YYYY-MM-DD",
     "brain_database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "brain_template_page_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   }

@@ -88,8 +88,10 @@ func main() {
 	core.StartBackgroundPolling()
 
 	var app *application.App
+	var popover *application.WebviewWindow
 	var settingsWindow *application.WebviewWindow
 	var brainWindow *application.WebviewWindow
+	var systray *application.SystemTray
 	app = application.New(application.Options{
 		Name:        coreapp.AppName,
 		Description: "Notion tasks in menu bar",
@@ -105,11 +107,11 @@ func main() {
 		},
 		// JS 側からの RPC を直接ハンドリング
 		RawMessageHandler: func(window application.Window, message string, origin *application.OriginInfo) {
-			handleRawMessage(core, app, settingsWindow, brainWindow, window, message, origin)
+			handleRawMessage(core, app, popover, settingsWindow, brainWindow, systray, window, message, origin)
 		},
 	})
 
-	popover := app.Window.NewWithOptions(application.WebviewWindowOptions{
+	popover = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:          "popover",
 		Title:         coreapp.AppName,
 		Width:         380,
@@ -152,34 +154,63 @@ func main() {
 	})
 
 	// メニューバー（SystemTray）の初期化
-	setupTray(app, popover, settingsWindow, core.GetConfig())
+	systray = setupTray(app, popover, settingsWindow, core.GetConfig())
+	if !core.IsConfigured() {
+		showSettingsWindow(settingsWindow)
+	}
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func setupTray(app *application.App, window *application.WebviewWindow, settingsWindow *application.WebviewWindow, cfg dto.Config) {
-	// パス指定があれば PNG を直接読み込む（base64 変換不要）
-	icon := loadTrayIcon(cfg)
+func setupTray(app *application.App, window *application.WebviewWindow, settingsWindow *application.WebviewWindow, cfg dto.Config) *application.SystemTray {
 	// メニューバー（SystemTray）を構成
 	systray := app.SystemTray.New()
-	if icon != nil {
-		systray.SetIcon(icon)
-		systray.SetDarkModeIcon(icon)
-	}
+	applyTrayIcon(systray, cfg)
 	// ラベルを空にしてアイコンのみ表示
 	systray.SetLabel("")
+	systray.SetMenu(buildTrayMenu(app, window, settingsWindow, cfg))
+	systray.AttachWindow(window)
+	return systray
+}
 
+func updateTrayMenu(app *application.App, window *application.WebviewWindow, settingsWindow *application.WebviewWindow, systray *application.SystemTray, cfg dto.Config) {
+	if systray == nil {
+		return
+	}
+	applyTrayIcon(systray, cfg)
+	systray.SetMenu(buildTrayMenu(app, window, settingsWindow, cfg))
+}
+
+func applyTrayIcon(systray *application.SystemTray, cfg dto.Config) {
+	// パス指定があれば PNG を直接読み込む（base64 変換不要）
+	icon := loadTrayIcon(cfg)
+	if icon == nil {
+		return
+	}
+	systray.SetIcon(icon)
+	systray.SetDarkModeIcon(icon)
+}
+
+func buildTrayMenu(app *application.App, window *application.WebviewWindow, settingsWindow *application.WebviewWindow, cfg dto.Config) *application.Menu {
 	menu := app.NewMenu()
-	menu.Add("タスク").OnClick(func(ctx *application.Context) {
-		window.EmitEvent("view-change", "tasks")
-		window.Show()
-	})
-	menu.Add("習慣").OnClick(func(ctx *application.Context) {
-		window.EmitEvent("view-change", "habits")
-		window.Show()
-	})
+	hasDB := false
+	for _, db := range cfg.Databases {
+		if !db.Enabled {
+			continue
+		}
+		key := db.Key
+		label := trayDatabaseLabel(db)
+		menu.Add(label).OnClick(func(ctx *application.Context) {
+			window.EmitEvent("view-change", key)
+			window.Show()
+		})
+		hasDB = true
+	}
+	if hasDB {
+		menu.AddSeparator()
+	}
 	menu.Add("設定").OnClick(func(ctx *application.Context) {
 		showSettingsWindow(settingsWindow)
 	})
@@ -191,9 +222,20 @@ func setupTray(app *application.App, window *application.WebviewWindow, settings
 	menu.Add("終了").OnClick(func(ctx *application.Context) {
 		app.Quit()
 	})
-	// メニュー適用とウィンドウの紐付け
-	systray.SetMenu(menu)
-	systray.AttachWindow(window)
+	return menu
+}
+
+func trayDatabaseLabel(db dto.DatabaseConfig) string {
+	name := strings.TrimSpace(db.Name)
+	if name != "" {
+		return name
+	}
+	switch db.Kind {
+	case dto.DatabaseKindHabit:
+		return "習慣"
+	default:
+		return "タスク"
+	}
 }
 
 func loadTrayIcon(cfg dto.Config) []byte {
@@ -226,7 +268,7 @@ func resolveTrayIconPath(path string) string {
 	return filepath.Join(base, coreapp.AppName, path)
 }
 
-func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *application.WebviewWindow, brainWindow *application.WebviewWindow, window application.Window, message string, origin *application.OriginInfo) {
+func handleRawMessage(core *coreapp.App, app *application.App, popover *application.WebviewWindow, settingsWindow *application.WebviewWindow, brainWindow *application.WebviewWindow, systray *application.SystemTray, window application.Window, message string, origin *application.OriginInfo) {
 	// 外部起点のメッセージは拒否
 	if !isTrustedOrigin(origin) {
 		return
@@ -265,6 +307,7 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			return
 		}
 		core.StartBackgroundPolling()
+		updateTrayMenu(app, popover, settingsWindow, systray, core.GetConfig())
 		respond(rpcResponse{ID: req.ID, OK: true})
 	case "getTokenStatus":
 		token, err := core.GetToken()
@@ -320,6 +363,18 @@ func handleRawMessage(core *coreapp.App, app *application.App, settingsWindow *a
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true, Data: name})
+	case "getDatabaseProperties":
+		var payload resolvePayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		props, err := core.GetDatabaseProperties(ctx, payload.DatabaseID)
+		if err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		respond(rpcResponse{ID: req.ID, OK: true, Data: props})
 	case "getBrainTemplate":
 		tpl, err := core.GetBrainTemplate(ctx)
 		if err != nil {
@@ -424,7 +479,9 @@ func showSettingsWindow(window *application.WebviewWindow) {
 		return
 	}
 	window.Show()
-	window.Focus()
+	if window.NativeWindow() != nil {
+		window.Focus()
+	}
 }
 
 func showBrainWindow(window *application.WebviewWindow) {
@@ -432,7 +489,9 @@ func showBrainWindow(window *application.WebviewWindow) {
 		return
 	}
 	window.Show()
-	window.Focus()
+	if window.NativeWindow() != nil {
+		window.Focus()
+	}
 }
 
 func isTrustedOrigin(origin *application.OriginInfo) bool {

@@ -78,6 +78,15 @@ func (a *App) GetToken() (string, error) {
 	return a.tokenStore.GetToken()
 }
 
+func (a *App) IsConfigured() bool {
+	token, err := a.tokenStore.GetToken()
+	if err != nil || strings.TrimSpace(token) == "" {
+		return false
+	}
+	cfg := a.currentConfig()
+	return hasConfiguredDatabase(cfg)
+}
+
 func (a *App) SetToken(token string) error {
 	if token == "" {
 		return fmt.Errorf("token is empty")
@@ -104,6 +113,10 @@ func (a *App) UpdateTaskStatus(ctx context.Context, databaseKey, taskID string, 
 	if db.Kind != dto.DatabaseKindTask {
 		return fmt.Errorf("database kind is not task")
 	}
+	db, err = a.ensureTaskDatabase(ctx, db, cfg.NotionVersion)
+	if err != nil {
+		return err
+	}
 	statusValue := db.StatusForAction(action)
 	if statusValue == "" {
 		return fmt.Errorf("status is not configured")
@@ -118,6 +131,10 @@ func (a *App) QueryTasks(ctx context.Context, databaseKey string) ([]dto.Task, e
 	}
 	if db.Kind != dto.DatabaseKindTask {
 		return nil, fmt.Errorf("database kind is not task")
+	}
+	db, err = a.ensureTaskDatabase(ctx, db, cfg.NotionVersion)
+	if err != nil {
+		return nil, err
 	}
 	return a.notion.QueryByStatus(ctx, db, cfg.NotionVersion, cfg.MaxResults, db.StatusInProgress)
 }
@@ -203,6 +220,11 @@ func (a *App) ResolveDataSourceID(ctx context.Context, databaseID string) (strin
 func (a *App) ResolveTitlePropertyName(ctx context.Context, databaseID string) (string, error) {
 	cfg := a.currentConfig()
 	return a.notion.ResolveTitlePropertyName(ctx, databaseID, cfg.NotionVersion)
+}
+
+func (a *App) GetDatabaseProperties(ctx context.Context, databaseID string) ([]dto.DatabaseProperty, error) {
+	cfg := a.currentConfig()
+	return a.notion.FetchDatabaseProperties(ctx, databaseID, cfg.NotionVersion)
 }
 
 func (a *App) GetBrainTemplate(ctx context.Context) (dto.BrainTemplate, error) {
@@ -480,4 +502,54 @@ func (a *App) ensureHabitDatabase(ctx context.Context, db dto.DatabaseConfig, no
 		db.TitlePropertyName = name
 	}
 	return db, nil
+}
+
+func (a *App) ensureTaskDatabase(ctx context.Context, db dto.DatabaseConfig, notionVersion string) (dto.DatabaseConfig, error) {
+	if db.DataSourceID == "" {
+		if strings.TrimSpace(db.DatabaseID) == "" {
+			return db, fmt.Errorf("database_id is required")
+		}
+		id, err := a.notion.ResolveDataSourceID(ctx, db.DatabaseID, notionVersion)
+		if err != nil {
+			return db, err
+		}
+		db.DataSourceID = id
+	}
+	if strings.TrimSpace(db.TitlePropertyName) == "" {
+		if strings.TrimSpace(db.DatabaseID) == "" {
+			return db, fmt.Errorf("database_id is required")
+		}
+		name, err := a.notion.ResolveTitlePropertyName(ctx, db.DatabaseID, notionVersion)
+		if err != nil {
+			return db, err
+		}
+		db.TitlePropertyName = name
+	}
+	return db, nil
+}
+
+func hasConfiguredDatabase(cfg dto.Config) bool {
+	for _, db := range cfg.Databases {
+		if !db.Enabled {
+			continue
+		}
+		hasID := strings.TrimSpace(db.DatabaseID) != "" || strings.TrimSpace(db.DataSourceID) != ""
+		if !hasID {
+			continue
+		}
+		switch db.Kind {
+		case dto.DatabaseKindHabit:
+			if strings.TrimSpace(db.TitlePropertyName) != "" || strings.TrimSpace(db.DatabaseID) != "" {
+				return true
+			}
+		default:
+			if strings.TrimSpace(db.StatusPropertyName) == "" || strings.TrimSpace(db.StatusInProgress) == "" {
+				continue
+			}
+			if strings.TrimSpace(db.TitlePropertyName) != "" || strings.TrimSpace(db.DatabaseID) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

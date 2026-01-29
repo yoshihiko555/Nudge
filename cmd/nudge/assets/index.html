@@ -90,10 +90,6 @@
             </div>
           </div>
 
-          <div class="form-block">
-            <label>Notion Version</label>
-            <input type="text" id="notionVersionInput" placeholder="YYYY-MM-DD" />
-          </div>
         </section>
 
         <section class="pane" data-pane="brain">
@@ -148,6 +144,13 @@
                 <button class="btn ghost db-resolve-data-source" type="button">Data Source ID 自動取得</button>
                 <button class="btn ghost db-resolve-title" type="button">Title プロパティ自動検出</button>
               </div>
+              <div class="row">
+                <button class="btn ghost db-load-properties" type="button">プロパティ一覧取得</button>
+              </div>
+              <p class="hint db-props-hint">
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="db-props-text"></span>
+              </p>
             </div>
             <div class="form-block">
               <label>Data Source ID</label>
@@ -186,10 +189,11 @@
 
             <div class="db-fields" data-kind="habit">
               <div class="form-block">
-                <label>曜日チェック列（自動）</label>
-                <input type="text" class="db-checkbox-property" placeholder="日,月,火,水,木,金,土" readonly />
+                <label>曜日チェック列（カンマ区切り）</label>
+                <input type="text" class="db-checkbox-property" placeholder="日,月,火,水,木,金,土" />
               </div>
             </div>
+
           </div>
         </div>
       </template>

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,8 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.notion.com"
+	defaultBaseURL       = "https://api.notion.com"
+	defaultNotionVersion = "2025-09-03"
 )
 
 type Client struct {
@@ -50,6 +52,7 @@ func NewClient(tokenStore store.TokenStore, opts ...Option) *Client {
 	c := &Client{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 		baseURL:    defaultBaseURL,
+		version:    defaultNotionVersion,
 		maxRetries: 3,
 		retryWait:  2 * time.Second,
 		tokenStore: tokenStore,
@@ -160,20 +163,91 @@ func (c *Client) ResolveDataSourceID(ctx context.Context, databaseID string, not
 }
 
 func (c *Client) ResolveTitlePropertyName(ctx context.Context, databaseID string, notionVersion string) (string, error) {
-	if databaseID == "" {
-		return "", fmt.Errorf("database_id is required")
-	}
-	var resp databaseResponse
-	path := fmt.Sprintf("/v1/databases/%s", databaseID)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, notionVersion); err != nil {
+	props, err := c.FetchDatabaseProperties(ctx, databaseID, notionVersion)
+	if err != nil {
 		return "", err
 	}
-	for name, prop := range resp.Properties {
+	for _, prop := range props {
 		if prop.Type == "title" {
-			return name, nil
+			return prop.Name, nil
 		}
 	}
 	return "", fmt.Errorf("title property not found")
+}
+
+func (c *Client) FetchDatabaseProperties(ctx context.Context, databaseID string, notionVersion string) ([]dto.DatabaseProperty, error) {
+	if databaseID == "" {
+		return nil, fmt.Errorf("database_id is required")
+	}
+	version := c.effectiveNotionVersion(notionVersion)
+	if version >= defaultNotionVersion {
+		dataSourceID, err := c.ResolveDataSourceID(ctx, databaseID, version)
+		if err != nil {
+			return nil, err
+		}
+		return c.fetchDataSourceProperties(ctx, dataSourceID, version)
+	}
+	return c.fetchDatabaseProperties(ctx, databaseID, version)
+}
+
+func (c *Client) fetchDatabaseProperties(ctx context.Context, databaseID string, notionVersion string) ([]dto.DatabaseProperty, error) {
+	var resp databaseResponse
+	path := fmt.Sprintf("/v1/databases/%s", databaseID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, notionVersion); err != nil {
+		return nil, err
+	}
+	return mapProperties(resp.Properties), nil
+}
+
+func (c *Client) fetchDataSourceProperties(ctx context.Context, dataSourceID string, notionVersion string) ([]dto.DatabaseProperty, error) {
+	if strings.TrimSpace(dataSourceID) == "" {
+		return nil, fmt.Errorf("data_source_id is required")
+	}
+	var resp dataSourceResponse
+	path := fmt.Sprintf("/v1/data_sources/%s", dataSourceID)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp, notionVersion); err != nil {
+		return nil, err
+	}
+	return mapProperties(resp.Properties), nil
+}
+
+func mapProperties(props map[string]propertySchema) []dto.DatabaseProperty {
+	out := make([]dto.DatabaseProperty, 0, len(props))
+	for name, prop := range props {
+		item := dto.DatabaseProperty{
+			Name: name,
+			Type: prop.Type,
+		}
+		switch prop.Type {
+		case "status":
+			if prop.Status != nil {
+				item.Options = extractOptionNames(prop.Status.Options)
+			}
+		case "select":
+			if prop.Select != nil {
+				item.Options = extractOptionNames(prop.Select.Options)
+			}
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func extractOptionNames(options []databaseOption) []string {
+	if len(options) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(options))
+	for _, opt := range options {
+		if strings.TrimSpace(opt.Name) == "" {
+			continue
+		}
+		out = append(out, opt.Name)
+	}
+	return out
 }
 
 func buildStatusFilter(name, typ, value string) map[string]any {
@@ -211,9 +285,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	if token == "" {
 		return errors.New("notion token is empty")
 	}
-	if notionVersion == "" {
-		notionVersion = c.version
-	}
+	notionVersion = c.effectiveNotionVersion(notionVersion)
 	if notionVersion == "" {
 		return errors.New("notion_version is empty")
 	}
@@ -279,6 +351,16 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 		return fmt.Errorf("notion error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return lastErr
+}
+
+func (c *Client) effectiveNotionVersion(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return c.version
+	}
+	if c.version != "" && version < c.version {
+		return c.version
+	}
+	return version
 }
 
 func shouldRetry(status int) bool {
