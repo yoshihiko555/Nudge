@@ -40,3 +40,6 @@ dist/
 
 # Homebrew tap workspace
 homebrew-nudge/
+.claude/docs/
+.claude/logs/
+.claude/state/
