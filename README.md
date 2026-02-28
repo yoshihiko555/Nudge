@@ -4,10 +4,10 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
 
 ## 主な機能
 - 進行中タスクの一覧表示
+- 習慣チェックの一覧表示（当日分）
 - 完了 / 中断へのステータス更新
 - 手動更新と自動ポーリング
 - Notion 設定の UI からの保存
-- Brain データベースへのメモ追加（テンプレート起点）
 
 ## 前提
 - Notion のタスクは Database で管理されている
@@ -28,13 +28,11 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
    ```
 4. アプリの「設定」タブで以下を保存
    - Notion API トークン
-   - Database ID
+   - タスク/習慣の Database 設定
    - Data Source ID（ボタンで自動取得可）
-   - Title / Status プロパティ名（プロパティ一覧から選択可）
+   - Title / Status / チェックボックスのプロパティ名
    - Status 型（`status` / `select`）
    - 進行中 / 完了 / 中断 の値
-   - Brain Database ID
-   - Brain Template Page ID
 
 ## 設定ファイル
 - 保存先: `~/Library/Application Support/Nudge/config.json`
@@ -60,9 +58,7 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
       }
     ],
     "poll_interval_seconds": 60,
-    "max_results": 30,
-    "brain_database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "brain_template_page_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    "max_results": 30
   }
   ```
 

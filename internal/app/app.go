@@ -227,25 +227,6 @@ func (a *App) GetDatabaseProperties(ctx context.Context, databaseID string) ([]d
 	return a.notion.FetchDatabaseProperties(ctx, databaseID, cfg.NotionVersion)
 }
 
-func (a *App) GetBrainTemplate(ctx context.Context) (dto.BrainTemplate, error) {
-	cfg := a.currentConfig()
-	if strings.TrimSpace(cfg.BrainTemplatePageID) == "" {
-		return dto.BrainTemplate{}, fmt.Errorf("brain_template_page_id is required")
-	}
-	return a.notion.FetchTemplate(ctx, cfg.BrainTemplatePageID, cfg.NotionVersion)
-}
-
-func (a *App) CreateBrainPage(ctx context.Context, body string) (dto.CreatedPage, error) {
-	cfg := a.currentConfig()
-	if strings.TrimSpace(cfg.BrainDatabaseID) == "" {
-		return dto.CreatedPage{}, fmt.Errorf("brain_database_id is required")
-	}
-	if strings.TrimSpace(cfg.BrainTemplatePageID) == "" {
-		return dto.CreatedPage{}, fmt.Errorf("brain_template_page_id is required")
-	}
-	return a.notion.CreatePageFromTemplate(ctx, cfg.BrainDatabaseID, cfg.BrainTemplatePageID, body, cfg.NotionVersion)
-}
-
 func (a *App) StartPolling(ctx context.Context, refresh func([]dto.Task)) error {
 	a.pollerMu.Lock()
 	defer a.pollerMu.Unlock()

@@ -9,6 +9,11 @@ import (
 	"nudge/internal/dto"
 )
 
+const (
+	legacyBrainDatabaseIDKey = "brain_database_id"
+	legacyBrainTemplateIDKey = "brain_template_page_id"
+)
+
 type ConfigStore interface {
 	Load() (dto.Config, error)
 	Save(cfg dto.Config) error
@@ -59,8 +64,6 @@ func (s *FileConfigStore) Load() (dto.Config, error) {
 		LaunchAtLogin       bool                 `json:"launch_at_login"`
 		TrayIconPath        string               `json:"tray_icon_path"`
 		NotionVersion       string               `json:"notion_version"`
-		BrainDatabaseID     string               `json:"brain_database_id"`
-		BrainTemplatePageID string               `json:"brain_template_page_id"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
@@ -104,8 +107,10 @@ func (s *FileConfigStore) Load() (dto.Config, error) {
 	if raw.NotionVersion != "" {
 		cfg.NotionVersion = raw.NotionVersion
 	}
-	cfg.BrainDatabaseID = raw.BrainDatabaseID
-	cfg.BrainTemplatePageID = raw.BrainTemplatePageID
+
+	if err := s.migrateLegacyBrainKeys(path, b); err != nil {
+		return cfg, err
+	}
 	return cfg.Normalize(), nil
 }
 
@@ -125,4 +130,39 @@ func (s *FileConfigStore) Save(cfg dto.Config) error {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
+}
+
+func (s *FileConfigStore) migrateLegacyBrainKeys(path string, rawJSON []byte) error {
+	migratedJSON, updated, err := stripLegacyBrainKeys(rawJSON)
+	if err != nil {
+		return fmt.Errorf("parse config for migration: %w", err)
+	}
+	if !updated {
+		return nil
+	}
+	if err := os.WriteFile(path, migratedJSON, 0o600); err != nil {
+		return fmt.Errorf("write migrated config: %w", err)
+	}
+	return nil
+}
+
+func stripLegacyBrainKeys(rawJSON []byte) ([]byte, bool, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rawJSON, &raw); err != nil {
+		return nil, false, err
+	}
+
+	_, hasDatabaseID := raw[legacyBrainDatabaseIDKey]
+	_, hasTemplateID := raw[legacyBrainTemplateIDKey]
+	if !hasDatabaseID && !hasTemplateID {
+		return nil, false, nil
+	}
+
+	delete(raw, legacyBrainDatabaseIDKey)
+	delete(raw, legacyBrainTemplateIDKey)
+	migratedJSON, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	return migratedJSON, true, nil
 }

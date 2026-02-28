@@ -698,20 +698,6 @@ textarea {
   min-height: 180px;
 }
 
-#app[data-mode="brain"] .tabs,
-#app[data-mode="brain"] #openSettingsBtn,
-#app[data-mode="brain"] #openBrainBtn {
-  display: none;
-}
-
-#app[data-mode="brain"] .pane[data-pane="settings"] {
-  display: none;
-}
-
-#app[data-mode="settings"] #openBrainBtn {
-  display: none;
-}
-
 .toggle-row {
   display: flex;
   align-items: center;
