@@ -14,17 +14,17 @@
 - `cc:done` `brain_database_id` / `brain_template_page_id` のマイグレーション処理を削除
 - `cc:done` 旧フラット形式(`database_id` 等)の config マイグレーション処理を削除
 
-### Phase 2: セットアップウィザード改善 `cc:TODO`
+### Phase 2: セットアップウィザード改善 `cc:done`
 
 #### DB接続の自動解決
 
-- `cc:TODO` database_id 入力後にプロパティ一覧を自動取得し、UI で選択可能にする
-- `cc:TODO` title / status プロパティの自動検出・サジェスト
-- `cc:TODO` status の選択肢（進行中/完了/中断）をドロップダウンで選べるようにする
+- `cc:done` database_id 入力後にプロパティ一覧を自動取得し、UI で選択可能にする
+- `cc:done` title / status プロパティの自動検出・サジェスト
+- `cc:done` status の選択肢（進行中/完了/中断）をドロップダウンで選べるようにする
 
 #### 習慣DBのセットアップ
 
-- `cc:TODO` 習慣DBのチェックボックスプロパティ名をユーザーが設定できるようにする
+- `cc:done` 習慣DBのチェックボックスプロパティ名をユーザーが設定できるようにする
 
 ### Phase 3: UI文字列の整理 `cc:TODO`
 

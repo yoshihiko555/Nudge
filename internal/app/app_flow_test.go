@@ -251,3 +251,269 @@ func TestHasConfiguredDatabase_EmptyDatabases(t *testing.T) {
 		t.Fatal("expected hasConfiguredDatabase to return false for empty Databases, got true")
 	}
 }
+
+func TestGetDatabaseProperties(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-123":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-abc"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/data_sources/ds-abc":
+			_, _ = w.Write([]byte(`{"properties":{"Name":{"type":"title"},"Status":{"type":"status","status":{"options":[{"name":"進行中"},{"name":"完了"}]}},"Done":{"type":"checkbox"}}}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{NotionVersion: "2025-09-03"}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	ctx := context.Background()
+	props, err := app.GetDatabaseProperties(ctx, "db-123")
+	if err != nil {
+		t.Fatalf("GetDatabaseProperties failed: %v", err)
+	}
+	if len(props) != 3 {
+		t.Fatalf("unexpected properties length: got=%d want=3", len(props))
+	}
+
+	hasName := false
+	hasStatus := false
+	hasDone := false
+	for _, p := range props {
+		switch p.Name {
+		case "Name":
+			hasName = p.Type == "title"
+		case "Status":
+			hasStatus = p.Type == "status" && len(p.Options) == 2
+		case "Done":
+			hasDone = p.Type == "checkbox"
+		}
+	}
+	if !hasName || !hasStatus || !hasDone {
+		t.Fatalf("unexpected properties: %+v", props)
+	}
+}
+
+func TestResolveDataSourceID(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-456":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-xyz"}]}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{NotionVersion: "2025-09-03"}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	ctx := context.Background()
+	id, err := app.ResolveDataSourceID(ctx, "db-456")
+	if err != nil {
+		t.Fatalf("ResolveDataSourceID failed: %v", err)
+	}
+	if id != "ds-xyz" {
+		t.Fatalf("unexpected data source id: got=%q want=%q", id, "ds-xyz")
+	}
+}
+
+func TestResolveTitlePropertyName(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-789":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-789"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/data_sources/ds-789":
+			_, _ = w.Write([]byte(`{"properties":{"Title":{"type":"title"},"Status":{"type":"status"}}}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{NotionVersion: "2025-09-03"}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	ctx := context.Background()
+	name, err := app.ResolveTitlePropertyName(ctx, "db-789")
+	if err != nil {
+		t.Fatalf("ResolveTitlePropertyName failed: %v", err)
+	}
+	if name != "Title" {
+		t.Fatalf("unexpected title property name: got=%q want=%q", name, "Title")
+	}
+}
+
+func TestResolveTitlePropertyName_NotFound(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-notitle":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-notitle"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/data_sources/ds-notitle":
+			_, _ = w.Write([]byte(`{"properties":{"Status":{"type":"status"}}}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{NotionVersion: "2025-09-03"}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	ctx := context.Background()
+	_, err := app.ResolveTitlePropertyName(ctx, "db-notitle")
+	if err == nil {
+		t.Fatal("expected error when title property is not found, got nil")
+	}
+}
+
+func TestEnsureTaskDatabase_AutoResolve(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-task":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-task"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/data_sources/ds-task":
+			_, _ = w.Write([]byte(`{"properties":{"TaskName":{"type":"title"},"Status":{"type":"status","status":{"options":[{"name":"進行中"}]}}}}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	db := dto.DatabaseConfig{
+		Kind:              dto.DatabaseKindTask,
+		DatabaseID:        "db-task",
+		DataSourceID:      "",
+		TitlePropertyName: "",
+	}
+
+	ctx := context.Background()
+	resolved, err := app.ensureTaskDatabase(ctx, db, "")
+	if err != nil {
+		t.Fatalf("ensureTaskDatabase failed: %v", err)
+	}
+	if resolved.DataSourceID != "ds-task" {
+		t.Fatalf("unexpected data source id: got=%q want=%q", resolved.DataSourceID, "ds-task")
+	}
+	if resolved.TitlePropertyName != "TaskName" {
+		t.Fatalf("unexpected title property name: got=%q want=%q", resolved.TitlePropertyName, "TaskName")
+	}
+}
+
+func TestEnsureHabitDatabase_AutoResolve(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/databases/db-habit":
+			_, _ = w.Write([]byte(`{"data_sources":[{"id":"ds-habit"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/data_sources/ds-habit":
+			_, _ = w.Write([]byte(`{"properties":{"HabitName":{"type":"title"},"Done":{"type":"checkbox"}}}`))
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tokenStore := &stubTokenStore{token: "dummy-token"}
+	cfgStore := &stubConfigStore{cfg: dto.Config{}}
+	notionClient := notion.NewClient(
+		tokenStore,
+		notion.WithBaseURL(server.URL),
+		notion.WithRetry(0, 0),
+	)
+	app := NewApp(cfgStore, tokenStore, notionClient)
+
+	if _, err := app.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	db := dto.DatabaseConfig{
+		Kind:              dto.DatabaseKindHabit,
+		DatabaseID:        "db-habit",
+		DataSourceID:      "",
+		TitlePropertyName: "",
+	}
+
+	ctx := context.Background()
+	resolved, err := app.ensureHabitDatabase(ctx, db, "")
+	if err != nil {
+		t.Fatalf("ensureHabitDatabase failed: %v", err)
+	}
+	if resolved.DataSourceID != "ds-habit" {
+		t.Fatalf("unexpected data source id: got=%q want=%q", resolved.DataSourceID, "ds-habit")
+	}
+	if resolved.TitlePropertyName != "HabitName" {
+		t.Fatalf("unexpected title property name: got=%q want=%q", resolved.TitlePropertyName, "HabitName")
+	}
+}

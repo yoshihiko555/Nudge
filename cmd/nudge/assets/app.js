@@ -143,14 +143,10 @@ function ensurePropertyLists(card, key) {
   const titleInput = card.querySelector('.db-title-property');
   const statusInput = card.querySelector('.db-status-property');
   const checkboxInput = card.querySelector('.db-checkbox-property');
-  const statusInProgressInput = card.querySelector('.db-status-in-progress');
-  const statusDoneInput = card.querySelector('.db-status-done');
-  const statusPausedInput = card.querySelector('.db-status-paused');
 
   const titleListId = `db-title-properties-${key}`;
   const statusListId = `db-status-properties-${key}`;
   const checkboxListId = `db-checkbox-properties-${key}`;
-  const statusValueListId = `db-status-values-${key}`;
 
   if (titleInput) {
     titleInput.setAttribute('list', titleListId);
@@ -168,20 +164,6 @@ function ensurePropertyLists(card, key) {
     checkboxInput.setAttribute('list', checkboxListId);
     const list = document.createElement('datalist');
     list.id = checkboxListId;
-    card.appendChild(list);
-  }
-  if (statusInProgressInput) {
-    statusInProgressInput.setAttribute('list', statusValueListId);
-  }
-  if (statusDoneInput) {
-    statusDoneInput.setAttribute('list', statusValueListId);
-  }
-  if (statusPausedInput) {
-    statusPausedInput.setAttribute('list', statusValueListId);
-  }
-  if (statusInProgressInput || statusDoneInput || statusPausedInput) {
-    const list = document.createElement('datalist');
-    list.id = statusValueListId;
     card.appendChild(list);
   }
 }
@@ -228,7 +210,6 @@ function applyPropertyOptions(card, properties) {
   const statusInput = card.querySelector('.db-status-property');
   const statusTypeSelect = card.querySelector('.db-status-type');
   const checkboxInput = card.querySelector('.db-checkbox-property');
-  const statusValueList = card.querySelector(`#db-status-values-${card.dataset.key}`);
 
   const titleOptions = (properties || []).filter((prop) => prop.type === 'title').map((prop) => prop.name);
   const statusOptions = (properties || []).filter((prop) => prop.type === 'status').map((prop) => prop.name);
@@ -252,10 +233,10 @@ function applyPropertyOptions(card, properties) {
     if (statusTypeSelect) {
       statusTypeSelect.value = 'status';
     }
-    updateStatusValueOptions(card, statusInput.value.trim(), statusValueList);
+    updateStatusValueOptions(card, statusInput.value.trim());
   }
   if (statusInput && statusInput.value.trim()) {
-    updateStatusValueOptions(card, statusInput.value.trim(), statusValueList);
+    updateStatusValueOptions(card, statusInput.value.trim());
   }
   if (checkboxInput && !checkboxInput.value.trim() && checkboxOptions.length === 1) {
     checkboxInput.value = checkboxOptions[0];
@@ -280,14 +261,44 @@ function updateStatusTypeFromProperty(card, name) {
   }
 }
 
-function updateStatusValueOptions(card, name, listEl) {
-  const map = card._propertyOptionsByName;
-  if (!map || !name) {
-    fillDatalist(listEl, []);
-    return;
+function populateStatusValueSelects(card, options) {
+  const selects = [
+    { el: card.querySelector('.db-status-in-progress'), placeholder: '-- 選択 --' },
+    { el: card.querySelector('.db-status-done'), placeholder: '-- 未設定 --' },
+    { el: card.querySelector('.db-status-paused'), placeholder: '-- 未設定 --' },
+  ];
+  for (const { el, placeholder } of selects) {
+    if (!el) continue;
+    const currentValue = el.value;
+    el.innerHTML = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = placeholder;
+    el.appendChild(defaultOpt);
+    (options || []).forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      el.appendChild(opt);
+    });
+    if (currentValue) {
+      if ((options || []).includes(currentValue)) {
+        el.value = currentValue;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = currentValue;
+        opt.textContent = currentValue;
+        el.appendChild(opt);
+        el.value = currentValue;
+      }
+    }
   }
-  const options = map.get(name) || [];
-  fillDatalist(listEl, options);
+}
+
+function updateStatusValueOptions(card, statusPropertyName) {
+  const map = card._propertyOptionsByName;
+  const options = map && statusPropertyName ? map.get(statusPropertyName) || [] : [];
+  populateStatusValueSelects(card, options);
 }
 
 function pickDefaultView() {
@@ -399,9 +410,20 @@ function createDatabaseCard(db) {
   card.querySelector('.db-title-property').value = db.title_property_name || '';
   card.querySelector('.db-status-property').value = db.status_property_name || '';
   card.querySelector('.db-status-type').value = db.status_property_type || 'status';
-  card.querySelector('.db-status-in-progress').value = db.status_in_progress || '';
-  card.querySelector('.db-status-done').value = db.status_done || '';
-  card.querySelector('.db-status-paused').value = db.status_paused || '';
+  [
+    { sel: '.db-status-in-progress', val: db.status_in_progress },
+    { sel: '.db-status-done', val: db.status_done },
+    { sel: '.db-status-paused', val: db.status_paused },
+  ].forEach(({ sel, val }) => {
+    const el = card.querySelector(sel);
+    if (el && val) {
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = val;
+      el.appendChild(opt);
+      el.value = val;
+    }
+  });
   const checkboxInput = card.querySelector('.db-checkbox-property');
   if (checkboxInput) {
     checkboxInput.value = db.checkbox_property_name || defaultHabitDays;
@@ -426,12 +448,19 @@ function createDatabaseCard(db) {
     }
   });
 
-  card
-    .querySelector('.db-resolve-data-source')
-    .addEventListener('click', () => resolveDataSource(card));
-  card
-    .querySelector('.db-resolve-title')
-    .addEventListener('click', () => resolveTitleProperty(card));
+  const dbIdInput = card.querySelector('.db-database-id');
+  if (dbIdInput) {
+    if (db.database_id) {
+      card.dataset.lastFetchedDbId = db.database_id;
+    }
+    dbIdInput.addEventListener('blur', () => {
+      const id = normalizeNotionId(dbIdInput.value);
+      if (id && id.length === 32 && id !== card.dataset.lastFetchedDbId) {
+        card.dataset.lastFetchedDbId = id;
+        loadDatabaseProperties(card, { silent: true });
+      }
+    });
+  }
   const loadPropertiesBtn = card.querySelector('.db-load-properties');
   if (loadPropertiesBtn) {
     loadPropertiesBtn.addEventListener('click', () => loadDatabaseProperties(card));
@@ -456,8 +485,7 @@ function createDatabaseCard(db) {
       }
     });
     statusInput.addEventListener('input', () => {
-      const listEl = card.querySelector(`#db-status-values-${card.dataset.key}`);
-      updateStatusValueOptions(card, statusInput.value.trim(), listEl);
+      updateStatusValueOptions(card, statusInput.value.trim());
     });
   }
   card.querySelector('.db-delete-btn').addEventListener('click', () => {
@@ -763,58 +791,30 @@ async function clearToken() {
   await refreshTokenStatus();
 }
 
-async function resolveDataSource(card) {
+async function loadDatabaseProperties(card, opts = {}) {
   const input = card.querySelector('.db-database-id');
   const databaseID = normalizeNotionId(input?.value);
   if (!databaseID) {
-    setError('Database ID を入力してください');
-    return;
-  }
-  try {
-    if (input) {
-      input.value = databaseID;
-    }
-    const id = await rpc('resolveDataSourceID', { database_id: databaseID });
-    card.querySelector('.db-data-source-id').value = id || '';
-  } catch (err) {
-    setError(err.message);
-  }
-}
-
-async function resolveTitleProperty(card) {
-  const input = card.querySelector('.db-database-id');
-  const databaseID = normalizeNotionId(input?.value);
-  if (!databaseID) {
-    setError('Database ID を入力してください');
-    return;
-  }
-  try {
-    if (input) {
-      input.value = databaseID;
-    }
-    const name = await rpc('resolveTitlePropertyName', { database_id: databaseID });
-    card.querySelector('.db-title-property').value = name || '';
-  } catch (err) {
-    setError(err.message);
-  }
-}
-
-async function loadDatabaseProperties(card) {
-  const input = card.querySelector('.db-database-id');
-  const databaseID = normalizeNotionId(input?.value);
-  if (!databaseID) {
-    setError('Database ID を入力してください');
+    if (!opts.silent) setError('Database ID を入力してください');
     return;
   }
   const button = card.querySelector('.db-load-properties');
   try {
-    setError('');
+    if (!opts.silent) setError('');
     setPropertyHint(card, 'プロパティを取得中...', true);
     if (button) {
       button.disabled = true;
     }
     if (input) {
       input.value = databaseID;
+    }
+    // DataSourceID を自動解決
+    const dataSourceInput = card.querySelector('.db-data-source-id');
+    if (dataSourceInput && !dataSourceInput.value.trim()) {
+      try {
+        const id = await rpc('resolveDataSourceID', { database_id: databaseID });
+        dataSourceInput.value = id || '';
+      } catch (_) {}
     }
     const properties = await rpc('getDatabaseProperties', { database_id: databaseID });
     const props = properties || [];
@@ -835,7 +835,7 @@ async function loadDatabaseProperties(card) {
     );
   } catch (err) {
     setPropertyHint(card, '取得に失敗しました');
-    setError(err.message);
+    if (!opts.silent) setError(err.message);
   } finally {
     setPropertyHint(card, card.querySelector('.db-props-text')?.textContent || '', false);
     if (button) {

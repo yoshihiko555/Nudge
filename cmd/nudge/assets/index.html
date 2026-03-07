@@ -112,11 +112,7 @@
               <label>Database ID</label>
               <input type="text" class="db-database-id" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
               <div class="row">
-                <button class="btn ghost db-resolve-data-source" type="button">Data Source ID 自動取得</button>
-                <button class="btn ghost db-resolve-title" type="button">Title プロパティ自動検出</button>
-              </div>
-              <div class="row">
-                <button class="btn ghost db-load-properties" type="button">プロパティ一覧取得</button>
+                <button class="btn ghost db-load-properties" type="button">プロパティ再取得</button>
               </div>
               <p class="hint db-props-hint">
                 <span class="spinner" aria-hidden="true"></span>
@@ -146,15 +142,21 @@
               </div>
               <div class="form-block">
                 <label>進行中の値</label>
-                <input type="text" class="db-status-in-progress" placeholder="In Progress" />
+                <select class="db-status-in-progress">
+                  <option value="">-- 選択 --</option>
+                </select>
               </div>
               <div class="form-block">
                 <label>完了の値</label>
-                <input type="text" class="db-status-done" placeholder="Done" />
+                <select class="db-status-done">
+                  <option value="">-- 未設定 --</option>
+                </select>
               </div>
               <div class="form-block">
                 <label>中断の値</label>
-                <input type="text" class="db-status-paused" placeholder="Paused" />
+                <select class="db-status-paused">
+                  <option value="">-- 未設定 --</option>
+                </select>
               </div>
             </div>
 
