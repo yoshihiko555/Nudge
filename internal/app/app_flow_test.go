@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"nudge/internal/dto"
 	"nudge/internal/notion"
@@ -199,4 +200,54 @@ func deepEqualJSONMap(got, want map[string]any) bool {
 		return false
 	}
 	return string(gotJSON) == string(wantJSON)
+}
+
+func TestResolveHabitCheckboxProperty_EmptyReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	db := dto.DatabaseConfig{
+		CheckboxPropertyName: "",
+	}
+
+	// Act
+	_, err := resolveHabitCheckboxProperty(db, time.Now())
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error when CheckboxPropertyName is empty, got nil")
+	}
+}
+
+func TestResolveHabitCheckboxProperty_InsufficientEntries(t *testing.T) {
+	t.Parallel()
+
+	// 3エントリしかないのに weekday=5 (Friday) を要求
+	db := dto.DatabaseConfig{
+		CheckboxPropertyName: "Mon,Tue,Wed",
+	}
+
+	// Friday = 5, len(parts) = 3 → エラーになるべき
+	friday := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
+	_, err := resolveHabitCheckboxProperty(db, friday)
+	if err == nil {
+		t.Fatal("expected error when weekday index exceeds entries, got nil")
+	}
+}
+
+func TestHasConfiguredDatabase_EmptyDatabases(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	cfg := dto.Config{
+		Databases: nil,
+	}
+
+	// Act
+	result := hasConfiguredDatabase(cfg)
+
+	// Assert
+	if result {
+		t.Fatal("expected hasConfiguredDatabase to return false for empty Databases, got true")
+	}
 }

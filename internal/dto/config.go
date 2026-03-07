@@ -8,7 +8,6 @@ import (
 const (
 	DatabaseKindTask  = "task"
 	DatabaseKindHabit = "habit"
-	DefaultHabitDays  = "日,月,火,水,木,金,土"
 )
 
 // DatabaseConfig はデータベースごとの設定。
@@ -39,19 +38,16 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	cfg := Config{
+	return Config{
 		PollIntervalSeconds: 60,
 		MaxResults:          30,
 	}
-	cfg.Databases = defaultDatabases()
-	return cfg
 }
 
 func (c Config) Normalize() Config {
-	if len(c.Databases) == 0 {
-		c.Databases = defaultDatabases()
+	if len(c.Databases) > 0 {
+		c.Databases = normalizeDatabases(c.Databases)
 	}
-	c.Databases = normalizeDatabases(c.Databases)
 	return c
 }
 
@@ -115,26 +111,6 @@ func (d DatabaseConfig) StatusForAction(action string) string {
 	}
 }
 
-func defaultDatabases() []DatabaseConfig {
-	return []DatabaseConfig{
-		{
-			Key:                "tasks",
-			Name:               "タスク",
-			Kind:               DatabaseKindTask,
-			Enabled:            true,
-			StatusPropertyType: "status",
-		},
-		{
-			Key:                  "habits",
-			Name:                 "習慣",
-			Kind:                 DatabaseKindHabit,
-			Enabled:              true,
-			TitlePropertyName:    "名前",
-			CheckboxPropertyName: DefaultHabitDays,
-		},
-	}
-}
-
 func normalizeDatabases(dbs []DatabaseConfig) []DatabaseConfig {
 	used := make(map[string]struct{}, len(dbs))
 	for i := range dbs {
@@ -143,11 +119,13 @@ func normalizeDatabases(dbs []DatabaseConfig) []DatabaseConfig {
 			dbs[i].Key = fmt.Sprintf("db-%d", i+1)
 		}
 		key := dbs[i].Key
+		counter := 2
 		for {
 			if _, ok := used[key]; !ok {
 				break
 			}
-			key = fmt.Sprintf("%s-%d", dbs[i].Key, i+1)
+			key = fmt.Sprintf("%s-%d", dbs[i].Key, counter)
+			counter++
 		}
 		dbs[i].Key = key
 		used[key] = struct{}{}
@@ -157,26 +135,7 @@ func normalizeDatabases(dbs []DatabaseConfig) []DatabaseConfig {
 			dbs[i].Kind = DatabaseKindTask
 		}
 		dbs[i].Name = strings.TrimSpace(dbs[i].Name)
-		if dbs[i].Name == "" {
-			dbs[i].Name = defaultNameForKind(dbs[i].Kind)
-		}
-		if dbs[i].Kind == DatabaseKindHabit {
-			if strings.TrimSpace(dbs[i].TitlePropertyName) == "" {
-				dbs[i].TitlePropertyName = "名前"
-			}
-			if strings.TrimSpace(dbs[i].CheckboxPropertyName) == "" {
-				dbs[i].CheckboxPropertyName = DefaultHabitDays
-			}
-		}
 	}
 	return dbs
 }
 
-func defaultNameForKind(kind string) string {
-	switch kind {
-	case DatabaseKindHabit:
-		return "習慣"
-	default:
-		return "タスク"
-	}
-}

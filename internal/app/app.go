@@ -404,17 +404,20 @@ func (a *App) resolveDatabase(key, kind string) (dto.DatabaseConfig, dto.Config,
 func resolveHabitCheckboxProperty(db dto.DatabaseConfig, now time.Time) (string, error) {
 	raw := strings.TrimSpace(db.CheckboxPropertyName)
 	if raw == "" {
-		raw = dto.DefaultHabitDays
+		return "", fmt.Errorf("checkbox_property_name is not configured")
 	}
 	parts := splitAndTrim(raw, ",")
 	if len(parts) == 1 {
 		return parts[0], nil
 	}
 	weekday := int(now.Weekday())
-	if weekday >= 0 && weekday < len(parts) && parts[weekday] != "" {
-		return parts[weekday], nil
+	if weekday < 0 || weekday >= len(parts) {
+		return "", fmt.Errorf("checkbox_property_name has %d entries but weekday index is %d", len(parts), weekday)
 	}
-	return parts[0], nil
+	if parts[weekday] == "" {
+		return "", fmt.Errorf("checkbox_property_name entry for weekday %d is empty", weekday)
+	}
+	return parts[weekday], nil
 }
 
 func splitAndTrim(value, sep string) []string {
