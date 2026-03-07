@@ -26,6 +26,15 @@ import (
 var assets embed.FS
 
 const (
+	// トレイメニューラベル
+	menuLabelSettings = "設定"
+	menuLabelRefresh  = "更新"
+	menuLabelQuit     = "終了"
+
+	// データベース種別ごとのデフォルト表示名
+	defaultLabelTask  = "タスク"
+	defaultLabelHabit = "習慣"
+
 	// メニューバー（SystemTray）用のフォールバックアイコン（PNG を base64 化）
 	// tray_icon_path が未設定・読み込み失敗時に使う
 	trayIconBase64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAHhlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAABIAAAAAQAAAEgAAAABAAOgAQADAAAAAQABAACgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAnwlWxAAAAAlwSFlzAAALEwAACxMBAJqcGAAABDJJREFUWAnFV10oZWsYXtv/X9JgojONGadjOqcjbpQLuXRx4shMcaFRhPx1dC5QJEQJSeFCEunkYm4oTXLhghElZUZycVzoKCRi/J2z/e73PO871teasda2ttrNW+9e3/e8f8/6/ta3Ne07i8NdfSLyhd2tj5t4urORw+FwWfndS46i4XB+C/0N+gPUB/oYUQQQvA+dho6AzGfLZCj+K/Qj1FuyhsSJpgRgeAr921uVDXm5xlOdhHF4/wSYoBu8+OQaf+j5hQAYBQF4rYNWz+3tbW1zc9PK7An+BjUDVQA6z6FnUFO5vb2lhoYGCg4OJl9fXyosLKSrqytTX5vgv/B7YSTwI4D/rIJnZmZ4RVNzczP19/fztqLy8nIrdzs4s//FNgEUdfn7+9Px8bEkHxoaEkJtbW12ipn5eEZgbW2NAgMDqaSkRCVramoSEiMjIwrzoPEwgevraxobG6OdnR3JOzg4KAVbW1ul73K5qKioSNbE9PS0B7XF9RK/P7udgtPTU4qNjaXU1FQ6OTmRqMbGRiExOjoqfafTSRkZGRQeHk4rKyuCGX92d3eJ1UQeJsBB8/PzFBQURLm5uXRzc0P6WwcEBNDCwoLkPTg4oMTERIqPj6f9/X3BDg8PKT8/X2J56jie/QxijwAHDA8Py1tPTU1JPL91UlISpaenE29PlvX1deJF2tHRIf2CggIp3tnZST09PRQWFkZ5eXnyAuJAZJ8AF4yOjqaampq7WKLu7m4KCQkhflNd0tLSKDMzk87Pz9nmamlp0U1MwsWjtre3p2OKgPEoVmvi2waiND8/PwVjOqSPQ0lhGA0NRTQfHx8NuOPi4kLZ0HYwzmoqKPAT1KnTMz77+vpkCmZnZwXmsyAhIYGysrKU29LSEiE5DQwMCFZVVSX92tpaqq+vl+kpLi5W/mioERBCAEwJTE5OyqlXWloq88fHb05ODoWGhtLq6qok3Nraori4OEpOTibeOSw8DdXV1TJ1UVFRVFlZqWzi8IXAKzUaAO8R4GQ897zNeB2w8JshiCYmJqTPo5GSkkIxMTG0sbEhmPHn7Ozs28K6mUfAPQFe4fwNODo6kiBe4VycvwUsPBrZ2dnygVpcXBTMg5+HCRiTLS8vy4lXV1en4IqKCiE0Pj6uMA8anhHo7e2VbaTPcXt7uxTnBfpI8YzA3NycFCwrK5NVzVNhHI1HkLhH4BmSfFnCJtn4CO7q6iJe0Xzu86Gkn4Im7nYgvpC85F0g13J0/NFehiYxaCVY9RofOJGRkVYudvENOCbjYuOU4w2Na5D4C6BbAhEREXYLPOT3jot/5QQCodAPUG/LJxR48lVxvQNDDPS9FxnweS5zr9c0+2vGX4zfoXxN5zs8X595F1iJ7BALI9tuoP9AJ6HjGPpLPJXcI6Asdw0wtviEKU935DQUdGtXWb5X43+lFriav9FvawAAAABJRU5ErkJggg=="
@@ -191,15 +200,15 @@ func buildTrayMenu(app *application.App, window *application.WebviewWindow, sett
 	if hasDB {
 		menu.AddSeparator()
 	}
-	menu.Add("設定").OnClick(func(ctx *application.Context) {
+	menu.Add(menuLabelSettings).OnClick(func(ctx *application.Context) {
 		showSettingsWindow(settingsWindow)
 	})
 	menu.AddSeparator()
-	menu.Add("更新").OnClick(func(ctx *application.Context) {
+	menu.Add(menuLabelRefresh).OnClick(func(ctx *application.Context) {
 		window.EmitEvent("refresh")
 	})
 	menu.AddSeparator()
-	menu.Add("終了").OnClick(func(ctx *application.Context) {
+	menu.Add(menuLabelQuit).OnClick(func(ctx *application.Context) {
 		app.Quit()
 	})
 	return menu
@@ -212,9 +221,9 @@ func trayDatabaseLabel(db dto.DatabaseConfig) string {
 	}
 	switch db.Kind {
 	case dto.DatabaseKindHabit:
-		return "習慣"
+		return defaultLabelHabit
 	default:
-		return "タスク"
+		return defaultLabelTask
 	}
 }
 
