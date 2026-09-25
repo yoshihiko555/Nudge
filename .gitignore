@@ -13,6 +13,8 @@
 *.cover
 coverage.out
 *.log
+.gocache/
+.gomodcache/
 
 # Go tooling
 /bin/
@@ -43,3 +45,5 @@ homebrew-nudge/
 .claude/docs/
 .claude/logs/
 .claude/state/
+.claude/checkpoints/
+.claude/Plans.md
