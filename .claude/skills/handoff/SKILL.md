@@ -1,0 +1,244 @@
+---
+name: handoff
+description:
+  'Generate a task handoff file so Codex CLI can continue work when Claude
+  Code
+
+  hits rate limits. Use this skill when the user says "handoff", "引き継ぎ",
+
+  "Codex に渡して", "rate limit", "レート制限", "continue in codex",
+
+  or wants to transfer in-progress work to Codex CLI.
+
+  '
+argument-hint: "[--message <text>]"
+metadata:
+  short-description: Transfer in-progress tasks to Codex CLI via handoff file
+---
+
+# CLI Language Policy
+
+**外部 CLI（Codex CLI / Antigravity CLI）と連携するスキルで守るべき共通ルール。**
+
+## 言語プロトコル
+
+| 対象                           | 言語       |
+| ------------------------------ | ---------- |
+| Codex / Antigravity への質問   | **英語**   |
+| Codex / Antigravity からの回答 | **英語**   |
+| ユーザーへの報告               | **日本語** |
+
+## Config-Driven ルーティング
+
+CLI ツールの利用可否と設定は `cli-tools.yaml` で一元管理する。
+
+### 読み込み手順
+
+1. `.claude/config/agent-routing/cli-tools.yaml` を読み込む
+2. `.claude/config/agent-routing/cli-tools.local.yaml` があれば上書きを適用する
+3. `{tool}.enabled` を確認する（`false` なら `claude-direct` にフォールバック）
+4. `agents.{name}.tool` で実行先を決定する
+
+### ルーティング規則
+
+| `agents.{name}.tool` | 動作                                                                              |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `codex`              | Codex CLI を使用                                                                  |
+| `antigravity`        | Antigravity CLI（`agy`）を使用（旧値 `gemini` は読み替え）                        |
+| `claude-direct`      | 外部 CLI を呼ばず Claude で処理                                                   |
+| `auto`               | タスク種別に応じて選択（深い推論 → Codex、調査 → Antigravity、単純作業 → Claude） |
+
+## サンドボックス実行
+
+Antigravity CLI（`agy`）は sandbox 内で直接実行する。
+Codex CLI は sandbox 内で動作しないため、base + `.local.yaml` マージ後の実効値で
+`codex.requires_sandbox_disable` が `true`（既定値）の場合に限り、呼び出し側で sandbox を
+無効化して実行する。`false` に上書きされた環境では sandbox 内で実行する
+（安全条件の詳細は `codex-delegation.md` 参照）。
+エラー時は `claude-direct` にフォールバックする。
+
+---
+
+# Handoff — Codex CLI タスク引き継ぎ
+
+**Claude Code のレート制限時に、作業中タスクのコンテキストを Codex CLI が引き継げる指示書ファイルを生成する。**
+
+## 使い方
+
+```
+/handoff
+/handoff --plan my-feature
+/handoff --message "Phase 2 の実装を続けて"
+```
+
+引き継ぐのは plan ファイル（`.claude/plans/<slug>.md`）1 つ。`--plan` を省略したときは、未完了の plan ファイルが
+1 つならそれを使い、複数なら選ばせ、0 なら終える（`task-memory-usage` ルールの「対象ファイルの決め方」）。
+
+## ワークフロー
+
+このスキルは以下のステップを **順番に** 実行する。
+
+### Step 1: データ収集（Python スクリプト）
+
+`scripts/handoff.py` を実行して構造化データを収集する:
+
+```bash
+"${AI_ORCHESTRA_PYTHON:-python3}" .claude/skills/handoff/scripts/handoff.py [--plan <slug>]
+```
+
+対象の plan ファイルは次のとおりに決まる:
+
+- `error` キーがある（slug が不正・ファイルが無い・読めない）: 内容を表示して終了する
+- `plan_file` が null で `plan_candidates` が空: 未完了の plan ファイルが無いことを伝えて終了する
+- `plan_file` が null で `plan_candidates` が 2 つ以上: AskUserQuestion で slug を選ばせ、`--plan <slug>` を付けて再実行する
+- `plan_file` がある: そのファイルを引き継ぐ
+
+スクリプトが JSON を stdout に出力する。内容:
+
+- 対象の plan ファイルのパス（`plan_file`）と、その WIP/TODO/blocked タスク
+- 対象の plan ファイルの Project ごとの Goal / Context / Constraints と、その Project に属する WIP / TODO / blocked タスク（`order_markdown` として整形済み。Project が複数あってもタスクは所属 Project の下に出る）
+- 未コミット diff のサマリー（`git diff --stat`）と未追跡ファイルの一覧（`untracked_files`。機密パターンは除外、50 件を超えたら `untracked_truncated: true`）
+- ブランチ名、最近のコミット、`branch_status`（Git リポジトリか = `git_repository`、detached か、`origin/HEAD` の既定ブランチ、統合ブランチ上か = `on_integration_branch`）
+- 対象の plan ファイルの Decisions セクション
+- 引き継ぎファイルの保存先 `handoff_path`（絶対パス）と Codex の起動コマンド `launch`（`available` / `command` / `reason`）
+
+### Step 2: 会話要約の生成
+
+ここが **スキル実行時に Claude が担当する部分**。Step 1 の出力 JSON に加えて、
+現在の会話コンテキストから以下を要約する（英語で、500文字以内）:
+
+- 何に取り組んでいたか（What was being worked on）
+- どこまで進んだか（Progress so far）
+- 次にやるべきこと（What needs to be done next）
+- 注意点や判断のコンテキスト（Important context or decisions）
+
+### Step 3: 引き継ぎファイル生成
+
+Step 1 の JSON + Step 2 の要約を組み合わせて、以下のフォーマットで
+JSON の `handoff_path` に書き出す（`launch.command` はこのパスを読むので、別の名前にしない）。
+
+**ファイルは英語で記述する**（Codex への指示は英語ルール準拠）。
+
+```markdown
+# Task Handoff
+
+**Generated**: {YYYY-MM-DD HH:MM:SS UTC}
+**Branch**: {branch_name}{on_integration_branch が true なら " (integration branch — create a feature branch before committing)"}
+**Project**: {project directory (absolute path)}
+**Plan file**: {plan_file}
+
+## Conversation Summary
+
+{Step 2 で生成した会話要約}
+
+## Order
+
+### {project name}
+
+#### Goal
+
+- {Goal の行}
+
+#### Context
+
+- {Context の行}
+
+#### Constraints
+
+- {Constraints の行}
+
+#### Tasks
+
+- WIP: {この Project の WIP タスク}
+- TODO: {この Project の TODO タスク}
+- Blocked: {この Project の blocked タスク} — Reason: {reason}
+
+## Current Task State
+
+### In Progress (WIP)
+
+- {task 1}
+- {task 2}
+
+### Next Up (TODO)
+
+- {task 1}
+- {task 2}
+
+### Blocked
+
+- {task} — Reason: {reason}
+
+## Recent Changes
+
+### Uncommitted Changes
+
+{git diff --stat output}
+
+Untracked files: {untracked_files をカンマ区切りで。untracked_truncated が true なら末尾に ", ..."。無ければ "none"}
+
+### Recent Commits
+
+- {hash} {message}
+
+## Design Decisions
+
+- {decision 1}
+- {decision 2}
+
+## Instructions for Codex
+
+You are continuing work that was started in Claude Code.
+Focus on the WIP tasks listed above. The conversation summary
+provides context on what has been done and what remains.
+Treat the Order section as the specification: for each task, follow the Goal,
+Context and Constraints of the Project it is listed under (Constraints of one
+Project do not apply to another Project's tasks); read the files listed under
+Context before changing code.
+
+Key files to review:
+
+- {plan_file} — Full task state of this work (update markers as you complete tasks)
+- {other relevant files from working context}
+
+Never commit on an integration branch. Before the first commit, run
+`git branch --show-current`: if it prints nothing (detached HEAD) or one of
+main / master / develop / staging / stage or the repository's default branch, create
+a feature branch first (`git switch -c <type>/<short-name>`).
+When you complete a task, update its marker in {plan_file} from `cc:WIP` to `cc:done`.
+When a Phase's Acceptance Criteria are met, check them (`- [ ]` → `- [x]`) only after
+you actually ran the `verify:` command and it passed, or confirmed the `judge:` criterion;
+never check an unverified criterion. Then commit that task's changes with a descriptive
+message. Check `git status --porcelain` first ("Uncommitted Changes" lists tracked
+changes only): stage by path (`git add <paths>`) only what belongs to the WIP tasks,
+never use `git add -A`, and before each commit review `git diff --cached`; if unrelated
+changes are already staged, unstage them (`git restore --staged <path>`) first. Do not stage `.claude/plans/` or `.claude/handoffs/` (local working
+files, not part of the change). Do not push; Claude Code creates the PR with
+`/pr-create` from the committed work.
+```
+
+### Step 4: ユーザーへの案内
+
+生成後、以下をユーザーに **日本語で** 表示する:
+
+1. 生成されたファイルのパス
+2. Codex 起動コマンド: `launch.available` が true なら `launch.command` を **そのまま** 表示する（引き継ぎファイルを
+   新規セッションのプロンプトとして渡す形。値の引用は `handoff.py` が済ませているので書き換えない）。false なら
+   コマンドは出さず、`launch.reason` と「`cli-tools.yaml`（+ `.local.yaml`）の `codex.enabled` /
+   `codex.model` / `codex.sandbox.implementation`（`workspace-write` が必要）を見直すか、Claude Code で続行する」旨を
+   案内する。`codex.flags` は `codex exec` 用なので起動コマンドには含まれない
+3. 引き継ぎ内容のサマリー（WIP タスク数、TODO タスク数）
+
+## オプション
+
+| フラグ            | 説明                                                   |
+| ----------------- | ------------------------------------------------------ |
+| `--message "..."` | Codex への追加指示メッセージを引き継ぎファイルに含める |
+| `--plan <slug>`   | 引き継ぐ plan ファイル（`.claude/plans/<slug>.md`）    |
+
+## 注意事項
+
+- 引き継ぎファイルは `.claude/handoffs/` に蓄積される（ローカル管理。`.gitignore` に自動追加される（gitignore 同期の対象）。コミットに含めない）
+- 引き継ぐ plan ファイルが決まらない場合（未完了の plan ファイルが無い等）はその旨を表示して終了。旧形式の `.claude/Plans.md` は読まない
+- diff が大きすぎる場合（100行超）は `--stat` のみに切り詰める
+- 機密情報（.env 等）は diff に含めない

@@ -14,6 +14,7 @@ CLI ツールの設定値（モデル名・フラグ等）を参照する際は�
 ## 例: cli-tools.yaml
 
 ベース（自動同期される）:
+
 ```yaml
 # .claude/config/agent-routing/cli-tools.yaml
 codex:
@@ -21,13 +22,13 @@ codex:
   sandbox:
     analysis: read-only
     implementation: workspace-write
-  flags: --full-auto
 
-gemini:
-  model: gemini-2.5-pro
+antigravity:
+  model: gemini-3.1-pro-high
 ```
 
 プロジェクト固有の上書き:
+
 ```yaml
 # .claude/config/agent-routing/cli-tools.local.yaml
 codex:
@@ -35,17 +36,19 @@ codex:
 ```
 
 → この場合の最終的な値:
+
 - `codex.model` = `o3-pro`（local で上書き）
 - `codex.sandbox.analysis` = `read-only`（ベースの値を継続使用）
-- `gemini.model` = `gemini-2.5-pro`（ベースの値を継続使用）
+- `antigravity.model` = `gemini-3.1-pro-high`（ベースの値を継続使用）
 
 ## 対象ファイル
 
-| ファイル | パッケージ | 用途 |
-|---------|-----------|------|
-| `cli-tools.yaml` | agent-routing | CLI ツールのモデル名・サンドボックス・フラグ |
-| `delegation-policy.json` | route-audit | キーワードベースのルーティング設定 |
-| `orchestration-flags.json` | route-audit | 機能フラグ（route_audit, quality_gate 等） |
+| ファイル                 | パッケージ    | 用途                                                                                        |
+| ------------------------ | ------------- | ------------------------------------------------------------------------------------------- |
+| `cli-tools.yaml`         | agent-routing | CLI ツールのモデル名・サンドボックス・フラグ                                                |
+| `delegation-policy.json` | audit         | キーワードベースのルーティング設定                                                          |
+| `audit-flags.json`       | audit         | 機能フラグ（route_audit, kpi_scorecard 等）                                                 |
+| `quality-gates.json`     | quality-gates | 機能フラグ（quality_gate, context_optimization, evaluation_set_check 等）・状態ディレクトリ |
 
 ## 配置構造
 

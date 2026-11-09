@@ -1,7 +1,55 @@
 ---
 name: tdd
-description: Implement features using Test-Driven Development (TDD) with Red-Green-Refactor cycle. Use this skill when the user asks to implement something with TDD, write tests first, or mentions "tdd", "test-driven", "red green refactor". Also trigger when the user says "テスト駆動", "TDDで実装", or wants test-first development.
+description:
+  Implement features using Test-Driven Development (TDD) with Red-Green-Refactor
+  cycle. Use this skill when the user asks to implement something with TDD, write
+  tests first, or mentions "tdd", "test-driven", "red green refactor". Also trigger
+  when the user says "テスト駆動", "TDDで実装", or wants test-first development.
+argument-hint: <what to implement>
 disable-model-invocation: true
+---
+
+# CLI Language Policy
+
+**外部 CLI（Codex CLI / Antigravity CLI）と連携するスキルで守るべき共通ルール。**
+
+## 言語プロトコル
+
+| 対象                           | 言語       |
+| ------------------------------ | ---------- |
+| Codex / Antigravity への質問   | **英語**   |
+| Codex / Antigravity からの回答 | **英語**   |
+| ユーザーへの報告               | **日本語** |
+
+## Config-Driven ルーティング
+
+CLI ツールの利用可否と設定は `cli-tools.yaml` で一元管理する。
+
+### 読み込み手順
+
+1. `.claude/config/agent-routing/cli-tools.yaml` を読み込む
+2. `.claude/config/agent-routing/cli-tools.local.yaml` があれば上書きを適用する
+3. `{tool}.enabled` を確認する（`false` なら `claude-direct` にフォールバック）
+4. `agents.{name}.tool` で実行先を決定する
+
+### ルーティング規則
+
+| `agents.{name}.tool` | 動作                                                                              |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `codex`              | Codex CLI を使用                                                                  |
+| `antigravity`        | Antigravity CLI（`agy`）を使用（旧値 `gemini` は読み替え）                        |
+| `claude-direct`      | 外部 CLI を呼ばず Claude で処理                                                   |
+| `auto`               | タスク種別に応じて選択（深い推論 → Codex、調査 → Antigravity、単純作業 → Claude） |
+
+## サンドボックス実行
+
+Antigravity CLI（`agy`）は sandbox 内で直接実行する。
+Codex CLI は sandbox 内で動作しないため、base + `.local.yaml` マージ後の実効値で
+`codex.requires_sandbox_disable` が `true`（既定値）の場合に限り、呼び出し側で sandbox を
+無効化して実行する。`false` に上書きされた環境では sandbox 内で実行する
+（安全条件の詳細は `codex-delegation.md` 参照）。
+エラー時は `claude-direct` にフォールバックする。
+
 ---
 
 # Test-Driven Development
@@ -16,13 +64,13 @@ Before writing any code, resolve two things:
 
 Scan the project root for language markers and select the appropriate test framework and runner:
 
-| Marker File | Language | Test Framework | Run Command |
-|-------------|----------|---------------|-------------|
-| `pyproject.toml`, `setup.py` | Python | pytest | Project runner (uv/poetry/pip) + `pytest` |
-| `package.json` | TypeScript/JavaScript | vitest / jest | `npm test` or `npx vitest` / `npx jest` |
-| `go.mod` | Go | testing (stdlib) | `go test ./...` |
-| `Cargo.toml` | Rust | cargo test | `cargo test` |
-| `*.csproj`, `*.sln` | C# | xUnit / NUnit | `dotnet test` |
+| Marker File                  | Language              | Test Framework   | Run Command                               |
+| ---------------------------- | --------------------- | ---------------- | ----------------------------------------- |
+| `pyproject.toml`, `setup.py` | Python                | pytest           | Project runner (uv/poetry/pip) + `pytest` |
+| `package.json`               | TypeScript/JavaScript | vitest / jest    | `npm test` or `npx vitest` / `npx jest`   |
+| `go.mod`                     | Go                    | testing (stdlib) | `go test ./...`                           |
+| `Cargo.toml`                 | Rust                  | cargo test       | `cargo test`                              |
+| `*.csproj`, `*.sln`          | C#                    | xUnit / NUnit    | `dotnet test`                             |
 
 If multiple markers exist, prefer the one closest to the target module. If the project already has tests, follow the existing test conventions (directory structure, naming, framework).
 
@@ -34,19 +82,21 @@ Read `.claude/config/agent-routing/cli-tools.yaml` (and `.local.yaml` if present
 
 Key agents used in TDD:
 
-| Phase | Agent | Config Key | Typical Routing |
-|-------|-------|-----------|----------------|
-| Test writing | `tester` | `agents.tester.tool` | codex |
-| Implementation | `backend-python-dev`, `frontend-dev`, etc. | `agents.<lang-dev>.tool` | codex |
-| Refactor review | `code-reviewer` | `agents.code-reviewer.tool` | claude-direct |
+| Phase                      | Agent                                      | Config Key                  |
+| -------------------------- | ------------------------------------------ | --------------------------- |
+| Test writing               | `tester`                                   | `agents.tester.tool`        |
+| Implementation             | `backend-python-dev`, `frontend-dev`, etc. | `agents.<lang-dev>.tool`    |
+| Refactor (apply)           | `$IMPL_AGENT` (same as Implementation)     | `agents.<lang-dev>.tool`    |
+| Refactor review (optional) | `code-reviewer`                            | `agents.code-reviewer.tool` |
 
 Select the implementation agent based on `$LANG`:
+
 - Python → `backend-python-dev`
 - TypeScript/JavaScript → `frontend-dev`
 - Go → `backend-go-dev`
 - Other → `general-purpose`
 
-**Routing enforcement rule**: If `agents.<name>.tool` is `codex`, the work MUST be delegated to a subagent that executes via Codex CLI. Do NOT write code directly with Edit/Write when the config says `codex`. If `codex.enabled: false`, fall back to `claude-direct` (subagent without Codex).
+**Routing enforcement rule**: Delegate each phase with `Task(subagent_type="{agent}", prompt="...")` regardless of the `agents.<name>.tool` value. Do NOT write CLI names, sandbox modes, or model names in the prompt: the SubagentStart hook injects `[Resolved Routing]` (tool / sandbox / model, merged from `cli-tools.yaml` and `.local.yaml`) into the subagent as hook context outside the prompt, and the agent definition follows it. The orchestrator must not write test or implementation code itself in a delegated phase. The agents with a fixed tool (`tester`, `backend-python-dev`, `frontend-dev`, `backend-go-dev`) stop without editing and report when their resolved routing cannot edit files (tool `antigravity`, or `codex` with sandbox `read-only`; the stop rule lives in each agent definition because the agent is the one that receives and follows `[Resolved Routing]`). `general-purpose` (Other languages) has no such stop rule; it uses `tool: auto` and chooses how to write by itself. When a writing phase (Red / Green / Refactor) comes back with that report, stop and report the misconfiguration to the user (implementation agents need `codex` + `workspace-write` or `claude-direct` in `cli-tools.yaml` / `.local.yaml`); do not work around it by editing in the orchestrator.
 
 ---
 
@@ -119,18 +169,24 @@ Confirm the test PASSES and report the result.
 
 After Green, assess whether refactoring is needed. If the code is already clean, skip to the next test.
 
-If refactoring is needed, the approach depends on `agents.code-reviewer.tool`:
-
-- **claude-direct**: Review and refactor inline (no subagent needed)
-- **codex**: Delegate refactoring to a subagent via Codex
+If refactoring is needed, delegate it to the implementation agent (the same `$IMPL_AGENT` as
+Step 2: it has Edit/Write and a `workspace-write` sandbox, unlike `code-reviewer`, whose agent
+definition has no Edit/Write tools). The hook's `[Resolved Routing]` decides the tool; do not write CLI names in the prompt:
 
 ```
-# Review what to refactor
-# Then apply changes while ensuring tests still pass:
-$TEST_CMD {test file}
+Task(subagent_type="$IMPL_AGENT", prompt="""
+Refactor {file} without changing behavior: remove duplication, improve naming and structure
+introduced while making the tests pass. Do not add features.
+Tests: $TEST_CMD {test file} must stay green. Report what you changed and the test result.
+""")
 ```
+
+If you want an independent opinion on what to refactor first, ask `code-reviewer` (read-only)
+and pass its list to `$IMPL_AGENT`. Do not refactor inline in the orchestrator. After the
+subagent returns, re-run `$TEST_CMD {test file}` yourself to confirm the tests still pass.
 
 Refactoring targets:
+
 - Remove duplication
 - Improve naming
 - Simplify structure
@@ -166,19 +222,23 @@ Target: 80%+ line coverage on the new module.
 ## TDD Complete: {Feature Name}
 
 ### Environment
+
 - Language: $LANG
 - Test Framework: $TEST_FRAMEWORK
 - Routing: tester=$TESTER_TOOL, impl=$IMPL_TOOL
 
 ### Test Cases
+
 - [x] {test1}: {description}
 - [x] {test2}: {description}
-...
+- [x] ...（残りのテストケース）
 
 ### Coverage
+
 {Coverage report}
 
 ### Implementation Files
+
 - `{source file}`: {description}
 - `{test file}`: {N} tests
 ```
@@ -195,5 +255,5 @@ Target: 80%+ line coverage on the new module.
 
 ### Integration Notes
 
-- After `startproject`, run at least 1 full TDD cycle (Red → Green → Refactor)
+- When implementing a work order from `/order` (a plan file `.claude/plans/<slug>.md` or an Issue), derive the test case list from its Acceptance Criteria
 - When used with `issue-fix`, the test case list should be derived from the issue's acceptance criteria

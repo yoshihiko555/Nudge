@@ -1,3 +1,46 @@
+# CLI Language Policy
+
+**外部 CLI（Codex CLI / Antigravity CLI）と連携するスキルで守るべき共通ルール。**
+
+## 言語プロトコル
+
+| 対象                           | 言語       |
+| ------------------------------ | ---------- |
+| Codex / Antigravity への質問   | **英語**   |
+| Codex / Antigravity からの回答 | **英語**   |
+| ユーザーへの報告               | **日本語** |
+
+## Config-Driven ルーティング
+
+CLI ツールの利用可否と設定は `cli-tools.yaml` で一元管理する。
+
+### 読み込み手順
+
+1. `.claude/config/agent-routing/cli-tools.yaml` を読み込む
+2. `.claude/config/agent-routing/cli-tools.local.yaml` があれば上書きを適用する
+3. `{tool}.enabled` を確認する（`false` なら `claude-direct` にフォールバック）
+4. `agents.{name}.tool` で実行先を決定する
+
+### ルーティング規則
+
+| `agents.{name}.tool` | 動作                                                                              |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `codex`              | Codex CLI を使用                                                                  |
+| `antigravity`        | Antigravity CLI（`agy`）を使用（旧値 `gemini` は読み替え）                        |
+| `claude-direct`      | 外部 CLI を呼ばず Claude で処理                                                   |
+| `auto`               | タスク種別に応じて選択（深い推論 → Codex、調査 → Antigravity、単純作業 → Claude） |
+
+## サンドボックス実行
+
+Antigravity CLI（`agy`）は sandbox 内で直接実行する。
+Codex CLI は sandbox 内で動作しないため、base + `.local.yaml` マージ後の実効値で
+`codex.requires_sandbox_disable` が `true`（既定値）の場合に限り、呼び出し側で sandbox を
+無効化して実行する。`false` に上書きされた環境では sandbox 内で実行する
+（安全条件の詳細は `codex-delegation.md` 参照）。
+エラー時は `claude-direct` にフォールバックする。
+
+---
+
 # AI Orchestra 使用ガイド
 
 オーケストレーションシステムの使い方。
@@ -21,44 +64,43 @@ Task(subagent_type="frontend-dev", prompt="実装: ログインフォーム")
 
 ```bash
 # 設計相談・デバッグ・トレードオフ分析 — config の codex.model, codex.sandbox.analysis, codex.flags を展開
-codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags> "{質問}" 2>/dev/null
+codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags> "{質問}" < /dev/null 2>/dev/null
 
 # 実装作業 — config の codex.sandbox.implementation を使用
-codex exec --model <codex.model> --sandbox <codex.sandbox.implementation> <codex.flags> "{タスク}" 2>/dev/null
+codex exec --model <codex.model> --sandbox <codex.sandbox.implementation> <codex.flags> "{タスク}" < /dev/null 2>/dev/null
 ```
 
 **使う場面:** 設計判断、デバッグ、比較検討、レビュー
 
-### Gemini CLI（リサーチ）
+### Antigravity CLI（リサーチ）
 
 ```bash
-# config の gemini.model を -m フラグに展開して使う
+# config の antigravity.model を --model フラグに展開して使う
+# agy -p モードは stdin を待たないため < /dev/null 不要
 
 # リサーチ
-gemini -m <gemini.model> -p "{質問}" 2>/dev/null
+agy -p "{質問}" --model <antigravity.model> 2>/dev/null
 
 # コードベース分析
-gemini -m <gemini.model> -p "{質問}" --include-directories . 2>/dev/null
-
-# マルチモーダル（PDF/動画）
-gemini -m <gemini.model> -p "{プロンプト}" < /path/to/file 2>/dev/null
+agy -p "{質問}" --model <antigravity.model> --add-dir . 2>/dev/null
 ```
 
-**使う場面:** ライブラリ調査、ドキュメント検索、大規模分析、PDF/動画処理
+**使う場面:** ライブラリ調査、ドキュメント検索、大規模分析
 
 ### レビュー実行
 
 ```
-/review              # スマート選定（code + 変更内容に応じた専門レビュアー）
-/review all          # 全 6 レビュアー並列実行
+/review              # スマート選定（code + adversarial + 変更内容に応じた専門レビュアー）
+/review all          # 全 7 レビュアー並列実行
 /review code         # コードレビューのみ
 /review security     # セキュリティレビューのみ
-/review impl         # 実装系（code + security + performance）
+/review adversarial  # 敵対的検証（堅牢性）レビューのみ
+/review impl         # 実装系（code + security + performance + adversarial）
 /review design       # 設計系（spec + architecture）
 /release-readiness   # マージ前最終チェック（テスト/レビュー/blocked確認）
 ```
 
-**スマート選定**: `/review` はパスパターン + diff コンテンツスキャンでレビュアーを自動選定（平均 2-3 名）。全レビュアーが必要な場合は `/review all` を使用。
+**スマート選定**: `/review` はベースライン 2 名（code + adversarial）に加え、パスパターン + diff コンテンツスキャンで専門レビュアーを自動選定（最大 4 名）。全レビュアーが必要な場合は `/review all` を使用。
 
 ---
 
@@ -66,14 +108,14 @@ gemini -m <gemini.model> -p "{プロンプト}" < /path/to/file 2>/dev/null
 
 メインオーケストレーターのコンテキストを節約するため、サブエージェント経由で実行する。
 
-| 状況 | 推奨方法 |
-|------|----------|
-| 大きな出力が予想される | サブエージェント経由 |
-| 複数の分析が必要 | 並列サブエージェント |
-| 詳細なレビュー | `/review` スキル使用 |
-| Codex/Gemini 相談 | サブエージェント経由（出力が大きい場合） |
+| 状況                   | 推奨方法                                 |
+| ---------------------- | ---------------------------------------- |
+| 大きな出力が予想される | サブエージェント経由                     |
+| 複数の分析が必要       | 並列サブエージェント                     |
+| 詳細なレビュー         | `/review` スキル使用                     |
+| Codex/Antigravity 相談 | サブエージェント経由（出力が大きい場合） |
 
-### Codex/Gemini 呼び出しパターン
+### Codex/Antigravity 呼び出しパターン
 
 ```
 # 大きな出力が予想される場合はサブエージェント経由
@@ -81,7 +123,7 @@ Task(subagent_type="general-purpose", prompt="""
 Codex に設計を相談してください:
 {質問内容}
 
-codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags> "..." 2>/dev/null
+codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags> "..." < /dev/null 2>/dev/null
 
 結果を要約して返してください。
 """)
@@ -92,93 +134,121 @@ codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags
 ## 利用可能なエージェント
 
 > **Note**: 各エージェントの実行ツールは `cli-tools.yaml` の `agents.<name>.tool` で決まる。
-> 下表はロール説明であり、Codex/Gemini の固定利用を意味しない。
+> 下表はロール説明であり、Codex/Antigravity の固定利用を意味しない。
 
 ### Planning
-| Agent | Role |
-|-------|------|
-| `planner` | タスク分解・マイルストーン計画 |
-| `researcher` | 調査・情報収集 |
-| `requirements` | 要件整理・明確化 |
+
+| Agent          | Role                           |
+| -------------- | ------------------------------ |
+| `planner`      | タスク分解・マイルストーン計画 |
+| `researcher`   | 調査・情報収集                 |
+| `requirements` | 要件整理・明確化               |
 
 ### Design
-| Agent | Role |
-|-------|------|
-| `architect` | システムアーキテクチャ設計 |
-| `api-designer` | REST/GraphQL API設計 |
-| `data-modeler` | データベース・スキーマ設計 |
-| `auth-designer` | 認証・認可設計 |
-| `spec-writer` | 仕様書作成 |
+
+| Agent           | Role                       |
+| --------------- | -------------------------- |
+| `architect`     | システムアーキテクチャ設計 |
+| `api-designer`  | REST/GraphQL API設計       |
+| `data-modeler`  | データベース・スキーマ設計 |
+| `auth-designer` | 認証・認可設計             |
+| `spec-writer`   | 仕様書作成                 |
 
 ### Implementation
-| Agent | Role |
-|-------|------|
-| `frontend-dev` | React/Vue/Next.js 実装 |
-| `backend-python-dev` | Python バックエンド |
-| `backend-go-dev` | Go バックエンド |
-| `ai-architect` | AI/ML システム設計 |
-| `ai-dev` | AI 機能実装 |
-| `prompt-engineer` | プロンプト設計・最適化 |
-| `rag-engineer` | RAG パイプライン実装 |
-| `debugger` | バグ特定・修正 |
-| `tester` | テストコード作成 |
+
+| Agent                | Role                   |
+| -------------------- | ---------------------- |
+| `frontend-dev`       | React/Vue/Next.js 実装 |
+| `backend-python-dev` | Python バックエンド    |
+| `backend-go-dev`     | Go バックエンド        |
+| `ai-architect`       | AI/ML システム設計     |
+| `ai-dev`             | AI 機能実装            |
+| `prompt-engineer`    | プロンプト設計・最適化 |
+| `rag-engineer`       | RAG パイプライン実装   |
+| `debugger`           | バグ特定・修正         |
+| `tester`             | テストコード作成       |
 
 ### Review
-| Agent | Role |
-|-------|------|
-| `code-reviewer` | 可読性・保守性・バグ検出 |
-| `security-reviewer` | 脆弱性・権限・情報漏洩 |
-| `performance-reviewer` | 計算量・I/O・最適化 |
-| `spec-reviewer` | 仕様との整合性 |
-| `architecture-reviewer` | アーキテクチャ妥当性 |
-| `ux-reviewer` | UX・アクセシビリティ |
-| `docs-writer` | ドキュメント作成 |
+
+| Agent                   | Role                     |
+| ----------------------- | ------------------------ |
+| `code-reviewer`         | 可読性・保守性・バグ検出 |
+| `security-reviewer`     | 脆弱性・権限・情報漏洩   |
+| `performance-reviewer`  | 計算量・I/O・最適化      |
+| `spec-reviewer`         | 仕様との整合性           |
+| `architecture-reviewer` | アーキテクチャ妥当性     |
+| `ux-reviewer`           | UX・アクセシビリティ     |
+| `adversarial-reviewer`  | 堅牢性の敵対的検証       |
+| `finding-verifier`      | レビュー指摘の反証検証   |
+| `docs-writer`           | ドキュメント作成         |
 
 ### Utility
-| Agent | Role |
-|-------|------|
-| `general-purpose` | 汎用タスク・外部CLI委譲 |
+
+| Agent                                 | Role                    |
+| ------------------------------------- | ----------------------- |
+| `general-purpose`                     | 汎用タスク・外部CLI委譲 |
+| `specialized-mcp-builder`             | MCP サーバー設計・実装  |
+| `support-executive-summary-generator` | 経営層向けサマリー生成  |
+| `testing-reality-checker`             | 実装状況の現実性検証    |
+
+### Specialists（agency-agents パッケージ）
+
+OSS の agency-agents から取り込んだエージェント（`specialized-mcp-builder` / `support-executive-summary-generator` も同じパッケージ）。
+
+| Agent                                       | Role                                                  |
+| ------------------------------------------- | ----------------------------------------------------- |
+| `engineering-privacy-engineer`              | 個人情報の検出・最小化・削除対応の設計とレビュー      |
+| `engineering-identity-access-engineer`      | OAuth/OIDC・SSO・SCIM の実装目線の設計とレビュー      |
+| `engineering-payments-billing-engineer`     | 決済連携・冪等性・PCI スコープの設計とレビュー        |
+| `engineering-database-reliability-engineer` | DB の冗長化・バックアップ・無停止移行の設計とレビュー |
+| `engineering-minimal-change-engineer`       | 依頼された範囲だけを直す最小差分の実装                |
 
 ---
 
 ## `tool: auto` 時の使い分け目安
 
-| タスク | 推奨 |
-|--------|------|
-| 設計判断 | Codex 候補 |
-| デバッグ | Codex 候補 |
-| コード実装相談 | Codex 候補 |
-| トレードオフ分析 | Codex 候補 |
-| ライブラリ調査 | Gemini 候補 |
-| コードベース全体理解 | Gemini 候補 |
-| 最新ドキュメント検索 | Gemini 候補 |
-| PDF/動画/画像処理 | Gemini 候補 |
+| タスク               | 推奨             |
+| -------------------- | ---------------- |
+| 設計判断             | Codex 候補       |
+| デバッグ             | Codex 候補       |
+| コード実装相談       | Codex 候補       |
+| トレードオフ分析     | Codex 候補       |
+| ライブラリ調査       | Antigravity 候補 |
+| コードベース全体理解 | Antigravity 候補 |
+| 最新ドキュメント検索 | Antigravity 候補 |
 
 ---
 
 ## ワークフロー例
 
+開発全体の進め方（対話で決める → `/order` で発注書 → 実行エンジン → PR）は `development-workflow` ルール
+（git-workflow パッケージ）に従う。以下はエージェントを直接呼び出す場合の例。
+
 ### 新機能開発
 
 1. **計画フェーズ**
+
    ```
    Task(subagent_type="planner", prompt="計画: {機能名}")
    Task(subagent_type="researcher", prompt="調査: {関連技術}")
    ```
 
 2. **設計フェーズ**
+
    ```
    Task(subagent_type="architect", prompt="設計: {機能名}")
    Task(subagent_type="api-designer", prompt="API設計: {機能名}")
    ```
 
 3. **実装フェーズ**
+
    ```
    Task(subagent_type="backend-python-dev", prompt="実装: {機能名}")
    Task(subagent_type="tester", prompt="テスト作成: {機能名}")
    ```
 
 4. **レビューフェーズ**
+
    ```
    /review  # 全レビュアー並列実行
    ```
@@ -196,7 +266,7 @@ codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags
 - レビューは `/review` スキルで一括実行
 - 大きなタスクは `planner` で分解してから実行
 - 設計判断で迷ったら `agents.<target>.tool` を確認し、`tool: auto` の場合は Codex を候補にする
-- 調査が必要なら `agents.<target>.tool` を確認し、`tool: auto` の場合は Gemini を候補にする
+- 調査が必要なら `agents.<target>.tool` を確認し、`tool: auto` の場合は Antigravity を候補にする
 - 大きな出力が予想される CLI 呼び出しはサブエージェント経由
 
 ---
@@ -204,6 +274,6 @@ codex exec --model <codex.model> --sandbox <codex.sandbox.analysis> <codex.flags
 ## 有効化方法
 
 ```bash
-python3 "$AI_ORCHESTRA_DIR/scripts/orchestra-manager.py" init --project /path/to/project
-python3 "$AI_ORCHESTRA_DIR/scripts/orchestra-manager.py" install <package> --project /path/to/project
+orchex init --project /path/to/project
+orchex install <package> --project /path/to/project
 ```

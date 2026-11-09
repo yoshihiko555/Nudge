@@ -42,8 +42,23 @@ dist/
 
 # Homebrew tap workspace
 homebrew-nudge/
+
+# >>> AI Orchestra (.claude) >>>
 .claude/docs/
 .claude/logs/
 .claude/state/
-.claude/checkpoints/
+.claude/context/
+.claude/codd/
+.claude/skill-evolution/metrics/
+.claude/skill-evolution/pending/
+.claude/meta-harness/
+.claude/loop/
+.claude/.cache/
+.codex/.cache/
+.codex/runs/
+.codex/reports/
+.claude/plans/
 .claude/Plans.md
+.claude/Plans.archive.md
+.claude/handoffs/
+# <<< AI Orchestra (.claude) <<<
