@@ -17,6 +17,7 @@ const saveConfigBtn = document.getElementById('saveConfigBtn');
 const saveTokenBtn = document.getElementById('saveTokenBtn');
 const clearTokenBtn = document.getElementById('clearTokenBtn');
 const openSettingsBtn = document.getElementById('openSettingsBtn');
+const headerRefreshBtn = document.getElementById('refreshBtn');
 
 const wails = window.wails;
 const appMode = (() => {
@@ -104,9 +105,11 @@ function setError(message) {
 function setStatusChip() {
   if (state.tokenSet) {
     statusChip.textContent = '接続準備OK';
+    statusChip.title = '接続準備OK';
     statusChip.classList.add('is-connected');
   } else {
     statusChip.textContent = '未接続';
+    statusChip.title = '未接続';
     statusChip.classList.remove('is-connected');
   }
 }
@@ -455,27 +458,6 @@ function renderTabsAndPanes() {
       pane.className = 'pane';
       pane.dataset.pane = db.key;
 
-      const header = document.createElement('div');
-      header.className = 'pane-header';
-
-      const headerText = document.createElement('div');
-      const title = document.createElement('h2');
-      title.textContent = db.name || defaultDatabaseName(db.kind);
-      const hint = document.createElement('p');
-      hint.className = 'hint';
-      hint.textContent =
-        db.kind === 'habit' ? '今日の習慣のみ表示' : '最新の更新から 60 秒おきに自動更新';
-      headerText.appendChild(title);
-      headerText.appendChild(hint);
-
-      const refreshBtn = document.createElement('button');
-      refreshBtn.className = 'btn ghost';
-      refreshBtn.textContent = '更新';
-      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key, true, true));
-
-      header.appendChild(headerText);
-      header.appendChild(refreshBtn);
-
       const list = document.createElement('div');
       list.className = 'task-list';
       // 最初の応答が来るまでは「読み込み中」を出し、空の表示と区別する。
@@ -487,19 +469,11 @@ function renderTabsAndPanes() {
       empty.className = 'empty-state';
       empty.textContent = db.kind === 'habit' ? '今日の習慣がありません' : 'タスクがありません';
 
-      pane.appendChild(header);
       pane.appendChild(list);
       pane.appendChild(empty);
-      let weekly = null;
-      if (db.kind === 'habit') {
-        weekly = document.createElement('section');
-        weekly.className = 'habit-weekly';
-        weekly.hidden = true;
-        pane.appendChild(weekly);
-      }
 
       paneContainer.insertBefore(pane, settingsPane);
-      state.paneMap.set(db.key, { listEl: list, emptyEl: empty, weeklyEl: weekly, kind: db.kind });
+      state.paneMap.set(db.key, { listEl: list, emptyEl: empty, kind: db.kind });
     });
   }
 }
@@ -808,68 +782,109 @@ function formatDueLabel(task) {
 }
 
 function createTaskCard(task, db, dbKey) {
-  const card = document.createElement('div');
-  card.className = 'task-card';
+  const row = document.createElement('div');
+  row.className = 'task-row';
   if (task.group === 'overdue') {
-    card.classList.add('is-overdue');
+    row.classList.add('is-overdue');
+  }
+  const inProgress = task.is_in_progress !== false;
+
+  // 左: 完了の丸チェック（完了の値が設定されているときだけ）
+  if (db?.status_done) {
+    const doneBtn = document.createElement('button');
+    doneBtn.type = 'button';
+    doneBtn.className = 'task-done-btn';
+    doneBtn.title = '完了にする';
+    doneBtn.setAttribute('aria-label', `${task.title || '(無題)'} を完了にする`);
+    doneBtn.addEventListener('click', () => updateTaskStatus(task.id, 'done', dbKey));
+    row.appendChild(doneBtn);
+  } else {
+    row.appendChild(document.createElement('span'));
   }
 
-  const title = document.createElement('div');
-  title.className = 'task-title';
+  // 中: タイトル（クリックで Notion を開く）と、期日・優先度・更新時刻
+  const body = document.createElement('div');
+  body.className = 'task-body';
+  const title = document.createElement('button');
+  title.type = 'button';
+  title.className = 'task-title-link';
+  title.title = 'Notion で開く';
   title.textContent = task.title || '(無題)';
+  title.addEventListener('click', () => openURL(task.url));
+  body.appendChild(title);
+  body.appendChild(createTaskMeta(task));
+  row.appendChild(body);
 
+  // 右: 未着手なら「開始」、ほかの操作は ⋯ で開く
+  const actions = document.createElement('div');
+  actions.className = 'task-row-actions';
+  if (!inProgress && db?.status_in_progress) {
+    const startBtn = document.createElement('button');
+    startBtn.type = 'button';
+    startBtn.className = 'btn';
+    startBtn.textContent = '開始';
+    startBtn.addEventListener('click', () => updateTaskStatus(task.id, 'resume', dbKey));
+    actions.appendChild(startBtn);
+  }
+  const menu = createTaskMenu(task, db, dbKey, inProgress);
+  const menuBtn = document.createElement('button');
+  menuBtn.type = 'button';
+  menuBtn.className = 'task-menu-btn';
+  menuBtn.textContent = '⋯';
+  menuBtn.title = 'ほかの操作';
+  menuBtn.setAttribute('aria-label', 'ほかの操作');
+  menuBtn.setAttribute('aria-expanded', 'false');
+  menuBtn.addEventListener('click', () => {
+    menu.hidden = !menu.hidden;
+    menuBtn.setAttribute('aria-expanded', String(!menu.hidden));
+  });
+  actions.appendChild(menuBtn);
+  row.appendChild(actions);
+  row.appendChild(menu);
+  return row;
+}
+
+function createTaskMeta(task) {
   const meta = document.createElement('div');
-  meta.className = 'task-meta';
-  const info = document.createElement('span');
-  info.className = 'task-meta-info';
+  meta.className = 'task-meta-line';
   const dueLabel = formatDueLabel(task);
   if (dueLabel) {
     const due = document.createElement('span');
     due.className = 'task-due';
     due.textContent = dueLabel;
-    info.appendChild(due);
+    meta.appendChild(due);
   }
   if (task.priority) {
     const priority = document.createElement('span');
     priority.className = 'task-priority';
     priority.textContent = task.priority;
-    info.appendChild(priority);
+    meta.appendChild(priority);
   }
   const edited = document.createElement('span');
+  edited.className = 'task-edited';
   edited.textContent = `更新 ${formatTime(task.last_edited_time)}`;
-  meta.appendChild(info);
   meta.appendChild(edited);
-
-  card.appendChild(title);
-  card.appendChild(meta);
-  card.appendChild(createTaskActions(task, db, dbKey));
-  return card;
+  return meta;
 }
 
-// 未着手のタスクは「開始」「完了」、進行中のタスクは「完了」「中断」を出す。値が未設定のボタンは出さない。
-function createTaskActions(task, db, dbKey) {
-  const actions = document.createElement('div');
-  actions.className = 'task-actions';
-  const addButton = (label, className, onClick) => {
+// ⋯ で開く操作の列（行の下に開く。小窓の端で切れないよう、浮かせずに行の中に出す）。
+function createTaskMenu(task, db, dbKey, inProgress) {
+  const menu = document.createElement('div');
+  menu.className = 'task-row-menu';
+  menu.hidden = true;
+  const addItem = (label, onClick) => {
     const btn = document.createElement('button');
-    btn.className = className;
+    btn.type = 'button';
+    btn.className = 'btn ghost';
     btn.textContent = label;
     btn.addEventListener('click', onClick);
-    actions.appendChild(btn);
+    menu.appendChild(btn);
   };
-
-  addButton('Notionで開く', 'btn ghost', () => openURL(task.url));
-  const inProgress = task.is_in_progress !== false;
-  if (!inProgress && db?.status_in_progress) {
-    addButton('開始', 'btn', () => updateTaskStatus(task.id, 'resume', dbKey));
-  }
-  if (db?.status_done) {
-    addButton('完了', inProgress ? 'btn' : 'btn ghost', () => updateTaskStatus(task.id, 'done', dbKey));
-  }
+  addItem('Notionで開く', () => openURL(task.url));
   if (inProgress && db?.status_paused) {
-    addButton('中断', 'btn ghost', () => updateTaskStatus(task.id, 'paused', dbKey));
+    addItem('中断', () => updateTaskStatus(task.id, 'paused', dbKey));
   }
-  return actions;
+  return menu;
 }
 
 // 危ない習慣の表示（詳細設計 4 章 4）。
@@ -897,87 +912,213 @@ const HABIT_WEEKLY_RETRY_MS = 3000;
 const HABIT_WEEKLY_MAX_RETRIES = 20;
 
 async function refreshHabitWeekly(pane, dbKey, retry = 0) {
-  if (!pane.weeklyEl) {
+  clearTimeout(pane.weeklyTimer);
+  let summary = null;
+  try {
+    summary = await rpc('getHabitSummary', { database_key: dbKey });
+  } catch (err) {
+    setError(err.message);
+  }
+  renderHabitPane(pane, dbKey, summary);
+  if (summary?.enabled && summary.history_loading && retry < HABIT_WEEKLY_MAX_RETRIES) {
+    pane.weeklyTimer = setTimeout(() => refreshHabitWeekly(pane, dbKey, retry + 1), HABIT_WEEKLY_RETRY_MS);
+  }
+}
+
+// 習慣タブ: 1 習慣 = 1 行（チェック・名前・回数・連続週数・今週 7 マス）。
+// 今日チェック済み・今週の目標に届いた習慣は「済み」にまとめて畳む。
+// 週集計を使わない DB（曜日の列が 7 つでない）は、v1 の一覧をそのまま出す。
+function renderHabitPane(pane, dbKey, summary) {
+  if (!summary || !summary.enabled) {
+    renderHabits(pane.listEl, pane.emptyEl, pane.lastHabits || [], dbKey);
     return;
   }
-  clearTimeout(pane.weeklyTimer);
+  const listEl = pane.listEl;
+  listEl.innerHTML = '';
+  pane.emptyEl.style.display = 'none';
+  if (summary.reason === 'not_loaded' || summary.reason === 'no_week_pages') {
+    listEl.appendChild(createNote(summary.reason === 'not_loaded' ? '読み込み中…' : '今週のページがまだありません'));
+    return;
+  }
+  const idByTitle = new Map((pane.lastHabits || []).map((habit) => [habit.title, habit.id]));
+  const isDone = (row) =>
+    Boolean(row.days[summary.today_index]) || (row.goal != null && row.checked_count >= row.goal);
+  const rows = summary.rows || [];
+  const active = rows.filter((row) => !isDone(row));
+  const done = rows.filter(isDone);
+  if (active.length === 0) {
+    listEl.appendChild(createNote('今日の習慣はすべて済みました'));
+  }
+  active.forEach((row) => listEl.appendChild(createHabitRow(row, summary, idByTitle.get(row.name), dbKey)));
+  if (done.length > 0) {
+    const doneRows = done.map((row) => createHabitRow(row, summary, idByTitle.get(row.name), dbKey));
+    listEl.appendChild(createCollapsibleGroup(`済み（${done.length}）`, `nudge.habitDoneOpen.${dbKey}`, doneRows));
+  }
+}
+
+function createNote(text) {
+  const note = document.createElement('div');
+  note.className = 'loading-state';
+  note.textContent = text;
+  return note;
+}
+
+// 見出しを押すと開閉するまとまり。開閉の状態は localStorage に覚える（読めなければ閉じる）。
+function createCollapsibleGroup(label, storageKey, children) {
+  const section = document.createElement('section');
+  section.className = 'task-group';
+  const header = document.createElement('button');
+  header.type = 'button';
+  header.className = 'task-group-header';
+  header.textContent = label;
+  const body = document.createElement('div');
+  body.className = 'task-group-body';
+  children.forEach((child) => body.appendChild(child));
+  const applyOpen = (open) => {
+    body.hidden = !open;
+    header.classList.toggle('is-open', open);
+    header.setAttribute('aria-expanded', String(open));
+  };
+  applyOpen(readOpenFlag(storageKey));
+  header.addEventListener('click', () => {
+    const open = body.hidden;
+    applyOpen(open);
+    writeOpenFlag(storageKey, open);
+  });
+  section.appendChild(header);
+  section.appendChild(body);
+  return section;
+}
+
+function readOpenFlag(key) {
   try {
-    const summary = await rpc('getHabitSummary', { database_key: dbKey });
-    renderHabitWeekly(pane.weeklyEl, summary);
-    if (summary?.enabled && summary.history_loading && retry < HABIT_WEEKLY_MAX_RETRIES) {
-      pane.weeklyTimer = setTimeout(() => refreshHabitWeekly(pane, dbKey, retry + 1), HABIT_WEEKLY_RETRY_MS);
-    }
+    return window.localStorage.getItem(key) === '1';
   } catch (err) {
-    pane.weeklyEl.hidden = true;
+    return false;
+  }
+}
+
+function writeOpenFlag(key, open) {
+  try {
+    window.localStorage.setItem(key, open ? '1' : '0');
+  } catch (err) {
+    // 保存できなくても表示は続ける。
+  }
+}
+
+function createHabitRow(row, summary, id, dbKey) {
+  const item = document.createElement('div');
+  item.className = 'habit-row';
+  if (row.risk === 'at_risk') {
+    item.classList.add('is-at-risk');
+  }
+  const checkedToday = Boolean(row.days[summary.today_index]);
+  item.appendChild(createHabitCheckButton(row, checkedToday, id, dbKey));
+
+  const name = document.createElement('div');
+  name.className = 'habit-row-name';
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.className = 'habit-name-link';
+  link.title = 'Notion で開く';
+  link.textContent = row.name || '(未設定)';
+  link.addEventListener('click', () => openURL(row.url));
+  name.appendChild(link);
+  if (row.risk === 'at_risk') {
+    const badge = document.createElement('span');
+    badge.className = 'habit-risk-badge';
+    badge.textContent = '今日やらないと届かない';
+    name.appendChild(badge);
+  }
+
+  const stats = document.createElement('div');
+  stats.className = 'habit-row-stats';
+  const count = document.createElement('span');
+  count.textContent = row.goal == null ? `${row.checked_count}` : `${row.checked_count}/${row.goal}`;
+  // 今週はもう届かない習慣は、文字を出さずに回数を薄くするだけにする。
+  count.classList.toggle('is-muted', row.risk === 'unreachable');
+  stats.appendChild(count);
+  const streakText = formatStreak(row, summary);
+  if (streakText) {
+    const streak = document.createElement('span');
+    streak.textContent = streakText;
+    stats.appendChild(streak);
+  }
+
+  item.appendChild(name);
+  item.appendChild(stats);
+  item.appendChild(createWeekDays(row, summary));
+  return item;
+}
+
+// 今日のチェック: 丸い枠のボタン。乗せると ✓ が薄く出て、押すと塗りつぶしになる。
+function createHabitCheckButton(row, checkedToday, id, dbKey) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'habit-check-btn';
+  btn.classList.toggle('is-checked', checkedToday);
+  btn.disabled = checkedToday || !id;
+  btn.setAttribute('aria-pressed', String(checkedToday));
+  btn.setAttribute('aria-label', `${row.name || '(未設定)'} を今日やった`);
+  btn.title = checkedToday ? '今日は済み' : '今日やった';
+  btn.addEventListener('click', () => checkHabitToday(dbKey, id, btn));
+  return btn;
+}
+
+async function checkHabitToday(dbKey, taskID, btn) {
+  btn.disabled = true;
+  btn.classList.add('is-checked');
+  try {
+    setError('');
+    await rpc('updateHabitCheck', { database_key: dbKey, task_id: taskID, checked: true });
+    await refreshDatabaseView(dbKey, true);
+  } catch (err) {
+    btn.disabled = false;
+    btn.classList.remove('is-checked');
     setError(err.message);
   }
 }
 
-// 今週の欄: 全習慣の 7 マス・回数・連続達成週数（詳細設計 SC-002）。
-function renderHabitWeekly(el, summary) {
-  el.innerHTML = '';
-  if (!summary || !summary.enabled) {
-    el.hidden = true;
-    return;
-  }
-  el.hidden = false;
-  const heading = document.createElement('div');
-  heading.className = 'task-group-header';
-  heading.textContent = '今週';
-  el.appendChild(heading);
-  if (summary.reason === 'not_loaded' || summary.reason === 'no_week_pages') {
-    const note = document.createElement('div');
-    note.className = 'hint habit-weekly-note';
-    note.textContent = summary.reason === 'not_loaded' ? '読み込み中…' : '今週のページがまだありません';
-    el.appendChild(note);
-    return;
-  }
-  (summary.rows || []).forEach((row) => el.appendChild(createHabitWeekRow(row, summary)));
-}
-
-function createHabitWeekRow(row, summary) {
-  const item = document.createElement('div');
-  item.className = 'habit-week-row';
-  const risk = HABIT_RISK[row.risk];
-  if (risk) {
-    item.classList.add(risk.className);
-  }
-
-  const name = document.createElement('div');
-  name.className = 'habit-week-name';
-  name.textContent = row.name || '(未設定)';
-
+// 今週の 7 日を点で出す。済みは塗り、過ぎた日は空の点、今日は色付きの輪、これからの日は小さく薄い点。
+function createWeekDays(row, summary) {
   const days = document.createElement('div');
   days.className = 'habit-week-days';
   (row.days || []).forEach((checked, index) => {
-    const day = document.createElement('span');
-    day.className = 'habit-day';
-    day.classList.toggle('is-checked', Boolean(checked));
-    day.classList.toggle('is-today', index === summary.today_index);
-    day.textContent = WEEKDAY_LABELS[index] || '';
-    days.appendChild(day);
+    const dot = document.createElement('span');
+    dot.className = 'habit-dot';
+    let state = '';
+    if (checked) {
+      dot.classList.add('is-checked');
+      state = '済み';
+    } else if (index < summary.today_index) {
+      dot.classList.add('is-missed');
+      state = 'やらなかった';
+    } else if (index > summary.today_index) {
+      dot.classList.add('is-future');
+      state = 'これから';
+    } else {
+      state = 'まだ';
+    }
+    if (index === summary.today_index) {
+      dot.classList.add('is-today');
+      state = `今日・${state}`;
+    }
+    dot.title = `${WEEKDAY_LABELS[index] || ''} ${state}`;
+    dot.setAttribute('aria-label', dot.title);
+    days.appendChild(dot);
   });
-
-  const count = document.createElement('span');
-  count.className = 'habit-week-count';
-  count.textContent = row.goal == null ? `${row.checked_count}` : `${row.checked_count}/${row.goal}`;
-
-  const streak = document.createElement('span');
-  streak.className = 'habit-week-streak';
-  streak.textContent = formatStreak(row, summary);
-
-  item.appendChild(name);
-  item.appendChild(days);
-  item.appendChild(count);
-  item.appendChild(streak);
-  return item;
+  return days;
 }
 
+// 連続達成週数。0 週は出さない（ノイズになるため）。過去分の取得中は「…」。
 function formatStreak(row, summary) {
   if (row.streak == null) {
-    return summary.history_loading && row.goal != null ? '読み込み中' : '—';
+    return summary.history_loading && row.goal != null ? '…' : '';
   }
-  return row.streak_capped ? '連続 52+ 週' : `連続 ${row.streak} 週`;
+  if (row.streak_capped) {
+    return '連続 52+ 週';
+  }
+  return row.streak > 0 ? `連続 ${row.streak} 週` : '';
 }
 
 function renderHabits(listEl, emptyEl, habits, dbKey) {
@@ -1044,7 +1185,7 @@ async function refreshDatabaseView(dbKey, force = false, refreshHistory = false)
         force_refresh: force,
         refresh_history: refreshHistory,
       });
-      renderHabits(pane.listEl, pane.emptyEl, habits, dbKey);
+      pane.lastHabits = habits;
       await refreshHabitWeekly(pane, dbKey);
     } else {
       const tasks = await rpc('getTasks', { database_key: dbKey, force_refresh: force });
@@ -1344,6 +1485,9 @@ function bindUI() {
   addDatabaseBtn.addEventListener('click', addDatabase);
   if (openSettingsBtn) {
     openSettingsBtn.addEventListener('click', openSettingsWindow);
+  }
+  if (headerRefreshBtn) {
+    headerRefreshBtn.addEventListener('click', () => refreshActiveView(true));
   }
 
   wails.Events.On('view-change', (event) => {
