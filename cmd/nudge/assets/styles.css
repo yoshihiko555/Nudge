@@ -978,3 +978,99 @@ button.task-group-header.is-open::before {
 .priority-order-row span {
   min-width: 48px;
 }
+
+/* v2: 習慣の週集計・危ない習慣 */
+.habit-risk-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.habit-card.is-at-risk,
+.habit-week-row.is-at-risk {
+  border-left: 3px solid var(--accent-2);
+}
+
+.habit-card.is-at-risk .habit-risk-badge {
+  color: #fff;
+  background: var(--accent-2);
+}
+
+.habit-card.is-unreachable,
+.habit-week-row.is-unreachable {
+  opacity: 0.6;
+}
+
+.habit-card.is-unreachable .habit-risk-badge {
+  color: var(--muted);
+  border: 1px solid var(--border-glass);
+}
+
+.habit-weekly {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.habit-weekly[hidden] {
+  display: none;
+}
+
+.habit-week-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border-glass);
+  font-size: 12px;
+}
+
+.habit-week-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.habit-week-days {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.habit-day {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px solid var(--border-glass);
+}
+
+.habit-day.is-checked {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.habit-day.is-today {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 0;
+}
+
+.habit-week-count,
+.habit-week-streak {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.habit-weekly-note {
+  padding: 4px 2px;
+}

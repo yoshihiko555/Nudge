@@ -67,6 +67,12 @@ type updateStatusPayload struct {
 type getHabitsPayload struct {
 	DatabaseKey  string `json:"database_key"`
 	ForceRefresh bool   `json:"force_refresh"`
+	// RefreshHistory は手動更新のときだけ true にし、過去の週も取り直させる。
+	RefreshHistory bool `json:"refresh_history"`
+}
+
+type getHabitSummaryPayload struct {
+	DatabaseKey string `json:"database_key"`
 }
 
 type updateHabitPayload struct {
@@ -405,12 +411,27 @@ func handleRawMessage(core *coreapp.App, app *application.App, popover *applicat
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
+		if payload.RefreshHistory {
+			core.RequestHistoryRefresh()
+		}
 		habits, err := core.GetHabits(ctx, payload.DatabaseKey, payload.ForceRefresh)
 		if err != nil {
 			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true, Data: habits})
+	case "getHabitSummary":
+		var payload getHabitSummaryPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		summary, err := core.GetHabitSummary(payload.DatabaseKey)
+		if err != nil {
+			respond(rpcResponse{ID: req.ID, OK: false, Error: err.Error()})
+			return
+		}
+		respond(rpcResponse{ID: req.ID, OK: true, Data: summary})
 	case "getSyncState":
 		respond(rpcResponse{ID: req.ID, OK: true, Data: core.GetSyncState()})
 	case "updateStatus":

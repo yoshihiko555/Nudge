@@ -250,6 +250,7 @@ function applyV2PropertyOptions(card, properties) {
   const namesOf = (types) => (properties || []).filter((prop) => types.includes(prop.type)).map((prop) => prop.name);
   populatePropertySelect(card.querySelector('.db-due-date-property'), namesOf(['date']));
   populatePropertySelect(card.querySelector('.db-priority-property'), namesOf(['select']));
+  populatePropertySelect(card.querySelector('.db-goal-property'), namesOf(['select', 'rich_text']));
   renderPriorityOrder(card);
 }
 
@@ -470,7 +471,7 @@ function renderTabsAndPanes() {
       const refreshBtn = document.createElement('button');
       refreshBtn.className = 'btn ghost';
       refreshBtn.textContent = '更新';
-      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key, true));
+      refreshBtn.addEventListener('click', () => refreshDatabaseView(db.key, true, true));
 
       header.appendChild(headerText);
       header.appendChild(refreshBtn);
@@ -489,9 +490,16 @@ function renderTabsAndPanes() {
       pane.appendChild(header);
       pane.appendChild(list);
       pane.appendChild(empty);
+      let weekly = null;
+      if (db.kind === 'habit') {
+        weekly = document.createElement('section');
+        weekly.className = 'habit-weekly';
+        weekly.hidden = true;
+        pane.appendChild(weekly);
+      }
 
       paneContainer.insertBefore(pane, settingsPane);
-      state.paneMap.set(db.key, { listEl: list, emptyEl: empty, kind: db.kind });
+      state.paneMap.set(db.key, { listEl: list, emptyEl: empty, weeklyEl: weekly, kind: db.kind });
     });
   }
 }
@@ -559,7 +567,7 @@ function createDatabaseCard(db) {
   const priorityInput = card.querySelector('.db-priority-property');
   setSelectValue(priorityInput, db.priority_property_name);
   card._priorityOrder = Array.isArray(db.priority_order) ? [...db.priority_order] : [];
-  card._goalPropertyName = db.goal_property_name || '';
+  setSelectValue(card.querySelector('.db-goal-property'), db.goal_property_name);
   if (priorityInput) {
     priorityInput.addEventListener('change', () => {
       card._priorityOrder = [];
@@ -675,7 +683,7 @@ function collectV2Fields(card, kind) {
     due_date_property_name: kind === 'task' ? card.querySelector('.db-due-date-property')?.value.trim() || '' : '',
     priority_property_name: priorityProperty,
     priority_order: priorityProperty ? [...(card._priorityOrder || [])] : [],
-    goal_property_name: card._goalPropertyName || '',
+    goal_property_name: kind === 'habit' ? card.querySelector('.db-goal-property')?.value.trim() || '' : '',
   };
 }
 
@@ -864,6 +872,114 @@ function createTaskActions(task, db, dbKey) {
   return actions;
 }
 
+// 危ない習慣の表示（詳細設計 4 章 4）。
+const HABIT_RISK = {
+  at_risk: { className: 'is-at-risk', label: '今日やらないと届かない' },
+  unreachable: { className: 'is-unreachable', label: '今週は届かない' },
+};
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function applyHabitRisk(card, container, risk) {
+  const def = HABIT_RISK[risk];
+  if (!def) {
+    return;
+  }
+  card.classList.add(def.className);
+  const badge = document.createElement('span');
+  badge.className = 'habit-risk-badge';
+  badge.textContent = def.label;
+  container.appendChild(badge);
+}
+
+// 過去の週を取っている間（history_loading）は、取り終わるまで短い間隔で読み直す（最大 20 回）。
+const HABIT_WEEKLY_RETRY_MS = 3000;
+const HABIT_WEEKLY_MAX_RETRIES = 20;
+
+async function refreshHabitWeekly(pane, dbKey, retry = 0) {
+  if (!pane.weeklyEl) {
+    return;
+  }
+  clearTimeout(pane.weeklyTimer);
+  try {
+    const summary = await rpc('getHabitSummary', { database_key: dbKey });
+    renderHabitWeekly(pane.weeklyEl, summary);
+    if (summary?.enabled && summary.history_loading && retry < HABIT_WEEKLY_MAX_RETRIES) {
+      pane.weeklyTimer = setTimeout(() => refreshHabitWeekly(pane, dbKey, retry + 1), HABIT_WEEKLY_RETRY_MS);
+    }
+  } catch (err) {
+    pane.weeklyEl.hidden = true;
+    setError(err.message);
+  }
+}
+
+// 今週の欄: 全習慣の 7 マス・回数・連続達成週数（詳細設計 SC-002）。
+function renderHabitWeekly(el, summary) {
+  el.innerHTML = '';
+  if (!summary || !summary.enabled) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const heading = document.createElement('div');
+  heading.className = 'task-group-header';
+  heading.textContent = '今週';
+  el.appendChild(heading);
+  if (summary.reason === 'not_loaded' || summary.reason === 'no_week_pages') {
+    const note = document.createElement('div');
+    note.className = 'hint habit-weekly-note';
+    note.textContent = summary.reason === 'not_loaded' ? '読み込み中…' : '今週のページがまだありません';
+    el.appendChild(note);
+    return;
+  }
+  (summary.rows || []).forEach((row) => el.appendChild(createHabitWeekRow(row, summary)));
+}
+
+function createHabitWeekRow(row, summary) {
+  const item = document.createElement('div');
+  item.className = 'habit-week-row';
+  const risk = HABIT_RISK[row.risk];
+  if (risk) {
+    item.classList.add(risk.className);
+  }
+
+  const name = document.createElement('div');
+  name.className = 'habit-week-name';
+  name.textContent = row.name || '(未設定)';
+
+  const days = document.createElement('div');
+  days.className = 'habit-week-days';
+  (row.days || []).forEach((checked, index) => {
+    const day = document.createElement('span');
+    day.className = 'habit-day';
+    day.classList.toggle('is-checked', Boolean(checked));
+    day.classList.toggle('is-today', index === summary.today_index);
+    day.textContent = WEEKDAY_LABELS[index] || '';
+    days.appendChild(day);
+  });
+
+  const count = document.createElement('span');
+  count.className = 'habit-week-count';
+  count.textContent = row.goal == null ? `${row.checked_count}` : `${row.checked_count}/${row.goal}`;
+
+  const streak = document.createElement('span');
+  streak.className = 'habit-week-streak';
+  streak.textContent = formatStreak(row, summary);
+
+  item.appendChild(name);
+  item.appendChild(days);
+  item.appendChild(count);
+  item.appendChild(streak);
+  return item;
+}
+
+function formatStreak(row, summary) {
+  if (row.streak == null) {
+    return summary.history_loading && row.goal != null ? '読み込み中' : '—';
+  }
+  return row.streak_capped ? '連続 52+ 週' : `連続 ${row.streak} 週`;
+}
+
 function renderHabits(listEl, emptyEl, habits, dbKey) {
   listEl.innerHTML = '';
   if (!habits || habits.length === 0) {
@@ -895,6 +1011,7 @@ function renderHabits(listEl, emptyEl, habits, dbKey) {
 
     main.appendChild(checkbox);
     main.appendChild(title);
+    applyHabitRisk(card, main, habit.risk);
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
@@ -911,7 +1028,9 @@ function renderHabits(listEl, emptyEl, habits, dbKey) {
   });
 }
 
-async function refreshDatabaseView(dbKey, force = false) {
+// refreshHistory は手動更新（タブの更新ボタン・トレイの「リフレッシュ」）のときだけ true にする。
+// 習慣のチェックや完了などの後の取り直しでは、過去の週は取り直さない。
+async function refreshDatabaseView(dbKey, force = false, refreshHistory = false) {
   const pane = state.paneMap.get(dbKey);
   const db = state.dbMap.get(dbKey);
   if (!pane || !db) {
@@ -920,8 +1039,13 @@ async function refreshDatabaseView(dbKey, force = false) {
   try {
     setError('');
     if (db.kind === 'habit') {
-      const habits = await rpc('getHabits', { database_key: dbKey, force_refresh: force });
+      const habits = await rpc('getHabits', {
+        database_key: dbKey,
+        force_refresh: force,
+        refresh_history: refreshHistory,
+      });
       renderHabits(pane.listEl, pane.emptyEl, habits, dbKey);
+      await refreshHabitWeekly(pane, dbKey);
     } else {
       const tasks = await rpc('getTasks', { database_key: dbKey, force_refresh: force });
       renderTasks(pane.listEl, pane.emptyEl, tasks, dbKey);
@@ -986,7 +1110,7 @@ function refreshActiveView(force = false) {
   if (state.mode === 'settings' || !state.view || state.view === 'settings') {
     return;
   }
-  refreshDatabaseView(state.view, force);
+  refreshDatabaseView(state.view, force, force);
 }
 
 async function updateTaskStatus(taskID, action, dbKey) {

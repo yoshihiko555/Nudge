@@ -27,6 +27,9 @@ type App struct {
 	taskCache  map[string][]dto.Task
 	habitCache map[string][]dto.Task
 	syncStates map[string]syncRecord
+	// habitWeek は週集計を使う習慣 DB の今週のページ、historyCache は過去分のページと取得結果。
+	habitWeek    map[string]habitWeekRecord
+	historyCache map[string]historyRecord
 	// generation は設定を保存するたびに増える。取得を始めた時と違えば、その結果は書かない。
 	generation uint64
 	// ready は起動後の最初の取得が終わったか。reloading は設定の保存後の取り直しの途中か。
@@ -34,6 +37,12 @@ type App struct {
 	reloading bool
 	// notifier は件数が変わりうるときに合図を送る先（メニューバーのラベル）。
 	notifier chan<- struct{}
+
+	// historyMu は過去分の取得の状態（同時に 1 本だけ走らせる等）を守る。キャッシュは cacheMu で守る。
+	historyMu sync.Mutex
+	history   historyState
+	// spawn は過去分の取得を別の goroutine で走らせる（テストでは同期で走らせる）。
+	spawn func(func())
 
 	now func() time.Time
 	// loc は「今日」「週」を判定するタイムゾーン（既定は Mac の設定）。テストでは固定する。
@@ -45,14 +54,17 @@ type App struct {
 
 func NewApp(cfgStore store.ConfigStore, tokenStore store.TokenStore, notionClient *notion.Client) *App {
 	return &App{
-		cfgStore:   cfgStore,
-		tokenStore: tokenStore,
-		notion:     notionClient,
-		taskCache:  make(map[string][]dto.Task),
-		habitCache: make(map[string][]dto.Task),
-		syncStates: make(map[string]syncRecord),
-		now:        time.Now,
-		loc:        time.Local,
+		cfgStore:     cfgStore,
+		tokenStore:   tokenStore,
+		notion:       notionClient,
+		taskCache:    make(map[string][]dto.Task),
+		habitCache:   make(map[string][]dto.Task),
+		syncStates:   make(map[string]syncRecord),
+		habitWeek:    make(map[string]habitWeekRecord),
+		historyCache: make(map[string]historyRecord),
+		spawn:        func(f func()) { go f() },
+		now:          time.Now,
+		loc:          time.Local,
 	}
 }
 
@@ -94,6 +106,8 @@ func (a *App) SaveConfig(cfg dto.Config) error {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.invalidateCaches()
+	a.resetHistoryForNewConfig()
+	a.requestHistory(true)
 	return nil
 }
 
@@ -106,6 +120,8 @@ func (a *App) invalidateCaches() {
 	a.taskCache = make(map[string][]dto.Task)
 	a.habitCache = make(map[string][]dto.Task)
 	a.syncStates = make(map[string]syncRecord)
+	a.habitWeek = make(map[string]habitWeekRecord)
+	a.historyCache = make(map[string]historyRecord)
 }
 
 func (a *App) GetToken() (string, error) {
@@ -260,13 +276,13 @@ func (a *App) QueryHabits(ctx context.Context, databaseKey string) ([]dto.Task, 
 // GetHabits は今日の未チェックの習慣を返す。失敗時の返し方は GetTasks と同じ。
 func (a *App) GetHabits(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
 	if !force {
-		if habits, ok := a.getHabitCache(databaseKey); ok {
+		if habits, ok := a.todayHabits(databaseKey); ok {
 			return habits, nil
 		}
 	}
 	err := a.forceRefresh(func() (bool, error) { return a.refreshHabitDatabase(ctx, databaseKey) })
 	a.notifySummary()
-	habits, ok := a.getHabitCache(databaseKey)
+	habits, ok := a.todayHabits(databaseKey)
 	if !ok {
 		if err == nil {
 			err = errStaleGeneration
@@ -280,8 +296,22 @@ func (a *App) GetHabits(ctx context.Context, databaseKey string, force bool) ([]
 // 途中で設定が保存されて結果を捨てたときは written が false になる。呼び出し側が refreshMu を持つ。
 func (a *App) refreshHabitDatabase(ctx context.Context, databaseKey string) (written bool, err error) {
 	gen := a.currentGeneration()
+	db, cfg, err := a.resolveDatabase(databaseKey, dto.DatabaseKindHabit)
+	if err == nil && usesWeeklyHabits(db) {
+		pages, truncated, err := a.fetchHabitWeek(ctx, db, cfg)
+		return a.storeHabitWeek(databaseKey, gen, pages, truncated, err), err
+	}
 	habits, err := a.QueryHabits(ctx, databaseKey)
 	return a.storeResult(dto.DatabaseKindHabit, databaseKey, gen, habits, false, err), err
+}
+
+// fetchHabitWeek は今週の日曜 0:00 以降に作られた習慣のページを取る（詳細設計 2.3）。
+func (a *App) fetchHabitWeek(ctx context.Context, db dto.DatabaseConfig, cfg dto.Config) ([]notion.HabitPage, bool, error) {
+	db, err := a.ensureHabitDatabase(ctx, db, cfg.NotionVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	return a.notion.QueryHabitPages(ctx, db, cfg.NotionVersion, weekdayColumns(db), weekStart(a.localNow()), time.Time{})
 }
 
 // GetSyncState は有効な DB ごとの最終取得の結果を、設定の並び順で返す（API-006）。
@@ -292,6 +322,10 @@ func (a *App) GetSyncState() []dto.SyncState {
 	for k, v := range a.syncStates {
 		records[k] = v
 	}
+	histories := make(map[string]historyRecord, len(a.historyCache))
+	for k, v := range a.historyCache {
+		histories[k] = v
+	}
 	a.cacheMu.Unlock()
 
 	out := make([]dto.SyncState, 0, len(cfg.Databases))
@@ -299,7 +333,9 @@ func (a *App) GetSyncState() []dto.SyncState {
 		if !db.Enabled {
 			continue
 		}
-		out = append(out, records[db.Key].toDTO(db))
+		state := records[db.Key].toDTO(db)
+		state.HistoryOK, state.HistoryFetchedFor, state.HistoryErrorKind = historySyncState(db, histories[db.Key])
+		out = append(out, state)
 	}
 	return out
 }
@@ -425,6 +461,11 @@ func (a *App) currentConfig() dto.Config {
 func (a *App) refreshAll(ctx context.Context) error {
 	err := a.refreshAllLocked(ctx)
 	a.notifySummary()
+	// 今日まだ過去分を取っていなければ（起動時・日付の切り替わり・再試行の時刻を過ぎた）取りに行く。
+	// ポーリングが失敗しているとき（トークンが無い・通信できない等）は、無駄な失敗を重ねないよう取りに行かない。
+	if err == nil {
+		a.requestHistory(false)
+	}
 	return err
 }
 
@@ -489,6 +530,19 @@ func (a *App) storeResult(kind, key string, gen uint64, items []dto.Task, trunca
 	if gen != a.generation {
 		return false
 	}
+	if !a.recordSyncLocked(key, truncated, err) {
+		return true
+	}
+	if kind == dto.DatabaseKindHabit {
+		a.habitCache[key] = cloneTasks(items)
+		return true
+	}
+	a.taskCache[key] = cloneTasks(items)
+	return true
+}
+
+// recordSyncLocked は取得結果を記録し、成功したかを返す。cacheMu を持って呼ぶ。
+func (a *App) recordSyncLocked(key string, truncated bool, err error) bool {
 	now := a.now()
 	rec := a.syncStates[key]
 	rec.attempted = true
@@ -499,18 +553,26 @@ func (a *App) storeResult(kind, key string, gen uint64, items []dto.Task, trunca
 		// 失敗は DB 名と種類をログに残す（NFR-06）。トークンはエラーに含まれない。
 		slog.Warn("notion fetch failed", "database", key, "kind", rec.errorKind, "error", err)
 		a.syncStates[key] = rec
-		return true
+		return false
 	}
 	rec.ok = true
 	rec.lastSuccess = now
 	rec.errorKind = ""
 	rec.truncated = truncated
 	a.syncStates[key] = rec
-	if kind == dto.DatabaseKindHabit {
-		a.habitCache[key] = cloneTasks(items)
-		return true
+	return true
+}
+
+// storeHabitWeek は今週の習慣のページを書く。世代が変わっていれば書かずに false を返す。
+func (a *App) storeHabitWeek(key string, gen uint64, pages []notion.HabitPage, truncated bool, err error) bool {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	if gen != a.generation {
+		return false
 	}
-	a.taskCache[key] = cloneTasks(items)
+	if a.recordSyncLocked(key, truncated, err) {
+		a.habitWeek[key] = habitWeekRecord{loaded: true, pages: pages}
+	}
 	return true
 }
 

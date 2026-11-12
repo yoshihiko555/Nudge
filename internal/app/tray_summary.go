@@ -53,10 +53,6 @@ func (a *App) TraySummary() TraySummary {
 	for k, v := range a.taskCache {
 		tasks[k] = cloneTasks(v)
 	}
-	habits := make(map[string][]dto.Task, len(a.habitCache))
-	for k, v := range a.habitCache {
-		habits[k] = cloneTasks(v)
-	}
 	states := make(map[string]syncRecord, len(a.syncStates))
 	for k, v := range a.syncStates {
 		states[k] = v
@@ -72,18 +68,12 @@ func (a *App) TraySummary() TraySummary {
 			summary.HasError = true
 		}
 		if db.Kind == dto.DatabaseKindHabit {
-			summary.HabitCount += countRemainingHabits(habits[db.Key])
+			summary.HabitCount += a.remainingHabitCount(db)
 			continue
 		}
 		summary.DueCount += countDueTasks(buildTaskView(tasks[db.Key], db, now))
 	}
 	return summary
-}
-
-// countRemainingHabits は残っている習慣の数を返す。キャッシュは今日の未チェックの一覧なので、その件数を数える。
-// 週の目標に届いた習慣を除く判定は、習慣の週集計（段階 3）で入れる。
-func countRemainingHabits(today []dto.Task) int {
-	return len(today)
 }
 
 func (a *App) hasToken() bool {
