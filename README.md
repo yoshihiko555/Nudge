@@ -1,11 +1,12 @@
 # Nudge
 
-Notion の「進行中タスク」を macOS メニューバーで確認・更新する Wails v3 アプリです。ローカル完結で動作します。
+Notion のタスクと習慣を macOS メニューバーで確認・更新する Wails v3 アプリです。ローカル完結で動作します。
 
 ## 主な機能
-- 進行中タスクの一覧表示
-- 習慣チェックの一覧表示（当日分）
-- 完了 / 中断へのステータス更新
+- タスクの一覧表示（期限切れ・今日・進行中・直近 7 日のまとまり、期日と優先度の順）
+- 完了 / 中断 / 開始（未着手 → 進行中）のステータス更新
+- 習慣の今日のチェックと、今週 7 日の状況・連続達成週数（「週N回」のゴール）の表示
+- メニューバーの件数（期限切れ＋今日のタスク、今日残っている習慣。取得に失敗したら「!」）
 - 手動更新と自動ポーリング
 - Notion 設定の UI からの保存
 
@@ -26,13 +27,14 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
    ```sh
    task run
    ```
-4. アプリの「設定」タブで以下を保存
-   - Notion API トークン
-   - タスク/習慣の Database 設定
-   - Data Source ID（ボタンで自動取得可）
-   - Title / Status / チェックボックスのプロパティ名
-   - Status 型（`status` / `select`）
-   - 進行中 / 完了 / 中断 の値
+4. 設定画面（メニューバーの「設定」）で以下を保存
+   - 一般: Notion API トークン
+   - データベースごと: データベース ID（「読み込む」でプロパティの候補が出る）、ステータスのプロパティと進行中 / 完了 / 中断 の値
+   - タスク（任意）: 期日のプロパティ（Date）、優先度のプロパティ（Select）と優先度の順
+   - 習慣（任意）: 曜日のチェックの列（日〜土）、ゴールのプロパティ（値は「週N回」）
+   - データソース ID・タイトルのプロパティ・ステータスの種類は「詳細」にあり、空なら自動で入る
+   - タスクの DB で期日・完了・中断の値のどれかが空なら、v1 と同じ「進行中のみ」の表示になる
+   - 習慣の DB で曜日の列が 7 つそろっていなければ、v1 と同じ今日の一覧になる。ゴールが空なら、今週の回数だけを出す（連続週数は出さない）
 
 ## 設定ファイル
 - 保存先: `~/Library/Application Support/Nudge/config.json`
@@ -54,7 +56,22 @@ Notion の「進行中タスク」を macOS メニューバーで確認・更新
         "status_in_progress": "In Progress",
         "status_done": "Done",
         "status_paused": "Paused",
-        "checkbox_property_name": ""
+        "checkbox_property_name": "",
+        "due_date_property_name": "期限日",
+        "priority_property_name": "優先度",
+        "priority_order": ["高", "中", "低"],
+        "goal_property_name": ""
+      },
+      {
+        "key": "habits",
+        "name": "習慣",
+        "kind": "habit",
+        "enabled": true,
+        "database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "data_source_id": "",
+        "title_property_name": "名前",
+        "checkbox_property_name": "日,月,火,水,木,金,土",
+        "goal_property_name": "ゴール"
       }
     ],
     "poll_interval_seconds": 60,
