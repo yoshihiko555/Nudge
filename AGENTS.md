@@ -12,12 +12,13 @@ Notion の進行中タスクを macOS メニューバーで確認・更新する
 - `build/`: Wails のビルド/配布設定。`docs/` は設計資料。`bin/` は成果物。
 
 ## Build, Test, and Development Commands
-- `task dev`: Wails 開発モード（デフォルト Vite ポートは 9245）。
-- `task run`: 現在の OS 向けに実行。
-- `task build`: 現在の OS 向けにビルド。
-- `task package`: 配布用パッケージ作成。
-- `task setup:docker`: クロスコンパイル用 Docker イメージ作成。
-- 事前に `task`（go-task）と `wails3` を用意してください。
+- `task --list`: タスクの一覧と説明を出す。
+- `task run`: ビルドしてから起動する（`task build` を含む）。
+- `task dev`: Wails 開発モード。ファイルを変えると、ビルドし直して起動し直す。
+- `task build`: ビルドだけ行う（`bin/Nudge`）。
+- `task test`: `go test ./...` を実行する。
+- `task package`: 配布用の `.app` を作る。`task dmg VERSION=x.y.z` / `task dmg:sha256 VERSION=x.y.z` で DMG と SHA256。
+- 事前に `task`（go-task）を用意してください。`wails3` は `go run` で go.mod と同じ版を使うので、別に入れなくてよい。
 
 ## Coding Style & Naming Conventions
 - Go は `gofmt` 準拠。公開は `CamelCase`、非公開は `lowerCamel`.

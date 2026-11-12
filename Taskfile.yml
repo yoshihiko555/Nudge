@@ -1,54 +1,94 @@
-version: '3'
+version: "3"
 
-includes:
-  common: ./build/Taskfile.yml
-  windows: ./build/windows/Taskfile.yml
-  darwin: ./build/darwin/Taskfile.yml
-  linux: ./build/linux/Taskfile.yml
-  ios: ./build/ios/Taskfile.yml
-  android: ./build/android/Taskfile.yml
+# Nudge は macOS 専用。`task --list` で、ここにあるタスクと説明の一覧が出る。
 
 vars:
   APP_NAME: "Nudge"
   BIN_DIR: "bin"
-  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # go.mod の Wails と同じ版にそろえる（@latest にすると、別の版の wails3 が使われる）
+  WAILS: "go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.53"
+  VITE_PORT: "{{.WAILS_VITE_PORT | default 9245}}"
 
 tasks:
+  dev:
+    desc: 開発モードで起動する（Go や画面のファイルを変えると、ビルドし直して起動し直す）
+    cmds:
+      - "{{.WAILS}} dev -config ./build/config.yml -port {{.VITE_PORT}}"
+
   build:
-    summary: Builds the application
+    desc: アプリをビルドする（bin/Nudge）。DEV=true を付けるとデバッグ用にビルドする
     cmds:
-      - task: "{{OS}}:build"
-
-  package:
-    summary: Packages a production build of the application
-    cmds:
-      - task: "{{OS}}:package"
-
-  dmg:
-    summary: Creates a DMG for macOS
-    cmds:
-      - task: "{{OS}}:dmg"
-        vars:
-          VERSION: "{{.VERSION}}"
-
-  dmg:sha256:
-    summary: Prints SHA256 for the DMG
-    cmds:
-      - task: "{{OS}}:dmg:sha256"
-        vars:
-          VERSION: "{{.VERSION}}"
+      - go build {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}} ./cmd/nudge
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+    env:
+      CGO_ENABLED: 1
+      CGO_CFLAGS: "-mmacosx-version-min=10.15"
+      CGO_LDFLAGS: "-mmacosx-version-min=10.15"
+      MACOSX_DEPLOYMENT_TARGET: "10.15"
 
   run:
-    summary: Runs the application
+    desc: ビルドしてから起動する（開発用の bin/Nudge.dev.app として起動する）
     cmds:
-      - task: "{{OS}}:run"
+      - task: build
+        vars:
+          DEV: "{{.DEV}}"
+      - mkdir -p {{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/{MacOS,Resources}
+      - cp build/darwin/icons.icns {{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources
+      - cp {{.BIN_DIR}}/{{.APP_NAME}} {{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS
+      - cp build/darwin/Info.dev.plist {{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist
+      - codesign --force --deep --sign - {{.BIN_DIR}}/{{.APP_NAME}}.dev.app
+      - "FRONTEND_DEVSERVER_URL= {{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"
 
-  dev:
-    summary: Runs the application in development mode
+  test:
+    desc: テストを実行する（go test ./...）
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - go test ./...
 
-  setup:docker:
-    summary: Builds Docker image for cross-compilation (~800MB download)
+  package:
+    desc: 配布用の .app を作る（bin/Nudge.app。署名は簡易署名だけ）
     cmds:
-      - task: common:setup:docker
+      - task: build
+      - mkdir -p {{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/{MacOS,Resources}
+      - cp build/darwin/icons.icns {{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources
+      - cp {{.BIN_DIR}}/{{.APP_NAME}} {{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS
+      - cp build/darwin/Info.plist {{.BIN_DIR}}/{{.APP_NAME}}.app/Contents
+      - codesign --force --deep --sign - {{.BIN_DIR}}/{{.APP_NAME}}.app
+
+  dmg:
+    desc: 配布用の DMG を作る（例 task dmg VERSION=1.2.3 → bin/Nudge-1.2.3.dmg）
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION を指定してください。例: task dmg VERSION=1.2.3"
+    cmds:
+      - task: package
+      - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+      - hdiutil create -volname "{{.APP_NAME}}" -srcfolder "{{.BIN_DIR}}/{{.APP_NAME}}.app" -ov -format UDZO "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+
+  dmg:sha256:
+    desc: DMG の SHA256 を表示する（Homebrew Cask の更新に使う。例 task dmg:sha256 VERSION=1.2.3）
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION を指定してください。例: task dmg:sha256 VERSION=1.2.3"
+      - sh: '[ -f "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg" ]'
+        msg: "DMG がありません。先に task dmg VERSION={{.VERSION}} を実行してください"
+    cmds:
+      - shasum -a 256 "{{.BIN_DIR}}/{{.APP_NAME}}-{{.VERSION}}.dmg"
+
+  icons:
+    desc: アイコンの画像（build/appicon.png）を変えたあとに、macOS のアイコン（build/darwin/icons.icns）を作り直す
+    # appicon.png は 1024×1024 で、中央に 824×824 の角丸（上下左右に 100px の余白）にする。
+    # 形が合わないと、macOS 26 はアイコンを灰色の枠に縮めて入れる。
+    dir: build
+    vars:
+      ICONSET:
+        sh: echo "${TMPDIR:-/tmp}/Nudge.iconset"
+    cmds:
+      - rm -rf "{{.ICONSET}}" && mkdir -p "{{.ICONSET}}"
+      - |
+        for s in 16 32 128 256 512; do
+          sips -z $s $s appicon.png --out "{{.ICONSET}}/icon_${s}x${s}.png" >/dev/null
+          sips -z $((s*2)) $((s*2)) appicon.png --out "{{.ICONSET}}/icon_${s}x${s}@2x.png" >/dev/null
+        done
+      - iconutil -c icns -o darwin/icons.icns "{{.ICONSET}}"
+      - rm -rf "{{.ICONSET}}"
