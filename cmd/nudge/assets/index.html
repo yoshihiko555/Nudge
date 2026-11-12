@@ -51,159 +51,178 @@
 
       <div id="paneContainer">
         <section class="pane" data-pane="settings">
-          <div class="pane-header">
-            <div>
-              <h2>設定</h2>
-              <p class="hint">Notion 環境に合わせて入力</p>
-            </div>
-            <button class="btn" id="saveConfigBtn">保存</button>
-          </div>
-
-          <div class="form-block">
-            <label>Notion API トークン</label>
-            <input type="password" id="tokenInput" placeholder="secret_..." />
-            <div class="row">
-              <button class="btn ghost" id="saveTokenBtn">保存</button>
-              <button class="btn danger" id="clearTokenBtn">削除</button>
-            </div>
-            <p class="hint" id="tokenHint">未保存</p>
-          </div>
-
-          <div class="form-block">
-            <label>ログイン時に起動</label>
-            <div class="toggle-row">
-              <input type="checkbox" id="launchAtLoginInput" />
-              <span class="toggle-text">macOSのログイン項目に追加します</span>
-            </div>
-          </div>
-
-          <div class="section-block">
-            <div class="section-header">
-              <h3>データベース</h3>
-              <button class="btn ghost" id="addDatabaseBtn">追加</button>
-            </div>
-            <div id="databaseList" class="database-list"></div>
-          </div>
-
-          <div class="section-block">
-            <div class="section-header">
-              <h3>Notion</h3>
-            </div>
-            <div class="form-grid">
-              <div class="form-block">
-                <p class="hint">データベース設定は上のカードから個別に管理します。</p>
-              </div>
+          <div class="settings-layout">
+            <nav class="settings-nav" aria-label="設定の項目">
+              <button type="button" class="settings-nav-item is-active" data-target="general">一般</button>
+              <div class="settings-nav-label">データベース</div>
+              <div id="settingsDbNav" class="settings-db-nav"></div>
+              <button type="button" class="settings-nav-add" id="addDatabaseBtn">＋ データベースを追加</button>
+            </nav>
+            <div class="settings-content">
+              <section class="settings-panel" data-panel="general">
+                <div class="database-header">
+                  <h2>一般</h2>
+                </div>
+                <div class="settings-section">
+                  <h3>Notion API トークン</h3>
+                  <div class="input-with-button">
+                    <input type="password" id="tokenInput" placeholder="secret_..." autocomplete="off" />
+                    <button class="btn ghost" id="saveTokenBtn" type="button">変更</button>
+                  </div>
+                  <p class="hint" id="tokenHint">未設定</p>
+                  <button class="link-danger" id="clearTokenBtn" type="button">トークンを削除</button>
+                </div>
+                <div class="settings-section">
+                  <h3>起動</h3>
+                  <label class="toggle-row">
+                    <input type="checkbox" id="launchAtLoginInput" />
+                    <span class="toggle-text">ログイン時に起動する</span>
+                  </label>
+                </div>
+              </section>
+              <div id="databaseList" class="database-list"></div>
             </div>
           </div>
-
+          <div class="settings-footer">
+            <span id="saveStatus" class="save-status" role="status" aria-live="polite"></span>
+            <button class="btn" id="saveConfigBtn" type="button">保存</button>
+          </div>
         </section>
       </div>
 
       <template id="databaseCardTemplate">
         <div class="database-card">
           <div class="database-header">
-            <div class="database-title">
-              <input type="text" class="db-name-input" placeholder="タブ名" />
-              <span class="db-key"></span>
-            </div>
-            <div class="database-controls">
-              <select class="db-kind-select">
-                <option value="task">タスク</option>
-                <option value="habit">習慣</option>
-              </select>
-              <label class="toggle-row">
-                <input type="checkbox" class="db-enabled-toggle" />
-                <span>有効</span>
-              </label>
-              <button class="btn danger db-delete-btn" type="button">削除</button>
-            </div>
+            <h2 class="db-panel-title"></h2>
+            <span class="db-key"></span>
           </div>
 
-          <div class="form-grid">
+          <div class="settings-section">
+            <div class="settings-grid">
+              <div class="form-block">
+                <label>タブの名前</label>
+                <input type="text" class="db-name-input" placeholder="タブ名" />
+              </div>
+              <div class="form-block">
+                <label>種類</label>
+                <select class="db-kind-select">
+                  <option value="task">タスク</option>
+                  <option value="habit">習慣</option>
+                </select>
+              </div>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" class="db-enabled-toggle" />
+              <span class="toggle-text">小窓にタブを出す</span>
+            </label>
+          </div>
+
+          <div class="settings-section">
+            <h3>Notion のデータベース</h3>
             <div class="form-block">
-              <label>Database ID</label>
-              <input type="text" class="db-database-id" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-              <div class="row">
-                <button class="btn ghost db-load-properties" type="button">プロパティ再取得</button>
+              <label>データベース ID</label>
+              <div class="input-with-button">
+                <input type="text" class="db-database-id" placeholder="Notion の URL にある 32 文字の ID" />
+                <button class="btn ghost db-load-properties" type="button">読み込む</button>
               </div>
               <p class="hint db-props-hint">
                 <span class="spinner" aria-hidden="true"></span>
                 <span class="db-props-text"></span>
               </p>
             </div>
-            <div class="form-block">
-              <label>Data Source ID</label>
-              <input type="text" class="db-data-source-id" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-            </div>
-            <div class="form-block">
-              <label>Title プロパティ名</label>
-              <input type="text" class="db-title-property" placeholder="Name" />
-            </div>
+          </div>
 
-            <div class="db-fields" data-kind="task">
+          <div class="db-fields" data-kind="task">
+            <div class="settings-section">
+              <h3>ステータス</h3>
               <div class="form-block">
-                <label>Status プロパティ名</label>
+                <label>ステータスのプロパティ</label>
                 <input type="text" class="db-status-property" placeholder="Status" />
               </div>
-              <div class="form-block">
-                <label>Status 型</label>
-                <select class="db-status-type">
-                  <option value="status">status</option>
-                  <option value="select">select</option>
-                </select>
+              <div class="settings-grid">
+                <div class="form-block">
+                  <label>進行中の値</label>
+                  <select class="db-status-in-progress">
+                    <option value="">-- 選択 --</option>
+                  </select>
+                </div>
+                <div class="form-block">
+                  <label>完了の値</label>
+                  <select class="db-status-done">
+                    <option value="">-- 未設定 --</option>
+                  </select>
+                </div>
+                <div class="form-block">
+                  <label>中断の値</label>
+                  <select class="db-status-paused">
+                    <option value="">-- 未設定 --</option>
+                  </select>
+                </div>
               </div>
-              <div class="form-block">
-                <label>進行中の値</label>
-                <select class="db-status-in-progress">
-                  <option value="">-- 選択 --</option>
-                </select>
-              </div>
-              <div class="form-block">
-                <label>完了の値</label>
-                <select class="db-status-done">
-                  <option value="">-- 未設定 --</option>
-                </select>
-              </div>
-              <div class="form-block">
-                <label>中断の値</label>
-                <select class="db-status-paused">
-                  <option value="">-- 未設定 --</option>
-                </select>
-              </div>
-              <div class="form-block">
-                <label>期日プロパティ（Date）</label>
-                <select class="db-due-date-property">
-                  <option value="">-- 未設定 --</option>
-                </select>
-                <p class="hint db-v2-hint"></p>
-              </div>
-              <div class="form-block">
-                <label>優先度プロパティ（Select）</label>
-                <select class="db-priority-property">
-                  <option value="">-- 未設定 --</option>
-                </select>
-                <p class="hint db-v2-hint"></p>
+            </div>
+            <div class="settings-section">
+              <h3>期日と優先度</h3>
+              <div class="settings-grid">
+                <div class="form-block">
+                  <label>期日のプロパティ（Date）</label>
+                  <select class="db-due-date-property">
+                    <option value="">-- 未設定 --</option>
+                  </select>
+                  <p class="hint db-v2-hint"></p>
+                </div>
+                <div class="form-block">
+                  <label>優先度のプロパティ（Select）</label>
+                  <select class="db-priority-property">
+                    <option value="">-- 未設定 --</option>
+                  </select>
+                  <p class="hint db-v2-hint"></p>
+                </div>
               </div>
               <div class="form-block db-priority-order-block" hidden>
                 <label>優先度の順（上ほど高い）</label>
                 <ol class="db-priority-order"></ol>
               </div>
             </div>
+          </div>
 
-            <div class="db-fields" data-kind="habit">
+          <div class="db-fields" data-kind="habit">
+            <div class="settings-section">
+              <h3>曜日の列とゴール</h3>
               <div class="form-block">
-                <label>曜日チェック列（カンマ区切り）</label>
+                <label>曜日のチェックの列（日〜土をカンマ区切り）</label>
                 <input type="text" class="db-checkbox-property" placeholder="日,月,火,水,木,金,土" />
               </div>
               <div class="form-block">
-                <label>ゴールプロパティ（Select / テキスト、値は「週N回」）</label>
+                <label>ゴールのプロパティ（値は「週N回」）</label>
                 <select class="db-goal-property">
                   <option value="">-- 未設定 --</option>
                 </select>
                 <p class="hint db-v2-hint"></p>
               </div>
             </div>
+          </div>
 
+          <details class="settings-section db-advanced">
+            <summary>詳細（自動で入る項目）</summary>
+            <div class="form-block">
+              <label>データソース ID</label>
+              <input type="text" class="db-data-source-id" placeholder="空なら自動で入ります" />
+            </div>
+            <div class="form-block">
+              <label>タイトルのプロパティ</label>
+              <input type="text" class="db-title-property" placeholder="空なら自動で入ります" />
+            </div>
+            <div class="form-block db-fields" data-kind="task">
+              <label>ステータスの種類</label>
+              <select class="db-status-type">
+                <option value="status">status</option>
+                <option value="select">select</option>
+              </select>
+            </div>
+          </details>
+
+          <div class="database-footer">
+            <button class="btn danger-outline db-delete-btn" type="button">このデータベースを削除</button>
           </div>
         </div>
       </template>
