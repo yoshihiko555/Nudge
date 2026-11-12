@@ -11,6 +11,8 @@ const tabNav = document.getElementById('tabNav');
 const paneContainer = document.getElementById('paneContainer');
 const databaseList = document.getElementById('databaseList');
 const addDatabaseBtn = document.getElementById('addDatabaseBtn');
+const settingsDbNav = document.getElementById('settingsDbNav');
+const saveStatusEl = document.getElementById('saveStatus');
 const databaseCardTemplate = document.getElementById('databaseCardTemplate');
 
 const saveConfigBtn = document.getElementById('saveConfigBtn');
@@ -360,6 +362,7 @@ function createMoveButton(card, index, delta, text, disabled) {
     [order[index], order[target]] = [order[target], order[index]];
     card._priorityOrder = order;
     renderPriorityOrder(card);
+    markSettingsDirty();
   });
   return btn;
 }
@@ -489,6 +492,8 @@ function renderDatabaseSettings(databases) {
       loadDatabaseProperties(card, { silent: true });
     }
   });
+  renderSettingsNav();
+  selectSettingsPanel(state.settingsSelected || 'general');
 }
 
 function applyDatabaseKind(card, kind) {
@@ -614,9 +619,103 @@ function createDatabaseCard(db) {
       return;
     }
     card.remove();
+    renderSettingsNav();
+    selectSettingsPanel('general');
+    markSettingsDirty();
   });
+  nameInput.addEventListener('input', () => {
+    updateCardTitle(card);
+    renderSettingsNav();
+  });
+  kindSelect.addEventListener('change', () => {
+    updateCardTitle(card);
+    renderSettingsNav();
+  });
+  enabledToggle.addEventListener('change', () => renderSettingsNav());
+  updateCardTitle(card);
 
   return card;
+}
+
+// 設定画面の左の一覧（一般と各データベース）。選んだものだけを右に出す。
+function renderSettingsNav() {
+  if (!settingsDbNav) {
+    return;
+  }
+  settingsDbNav.innerHTML = '';
+  databaseList.querySelectorAll('.database-card').forEach((card) => {
+    const kind = card.querySelector('.db-kind-select').value;
+    const enabled = card.querySelector('.db-enabled-toggle').checked;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'settings-nav-item';
+    btn.dataset.target = card.dataset.key;
+    const name = document.createElement('span');
+    name.textContent = card.querySelector('.db-name-input').value.trim() || defaultDatabaseName(kind);
+    const sub = document.createElement('span');
+    sub.className = 'nav-sub';
+    sub.textContent = `${defaultDatabaseName(kind)}${enabled ? '' : '・無効'}`;
+    btn.appendChild(name);
+    btn.appendChild(sub);
+    btn.addEventListener('click', () => selectSettingsPanel(card.dataset.key));
+    settingsDbNav.appendChild(btn);
+  });
+  highlightSettingsNav();
+}
+
+function selectSettingsPanel(target) {
+  const cards = Array.from(databaseList.querySelectorAll('.database-card'));
+  const exists = target === 'general' || cards.some((card) => card.dataset.key === target);
+  const selected = exists ? target : 'general';
+  state.settingsSelected = selected;
+  const general = document.querySelector('.settings-panel[data-panel="general"]');
+  if (general) {
+    general.hidden = selected !== 'general';
+  }
+  cards.forEach((card) => {
+    card.hidden = card.dataset.key !== selected;
+  });
+  highlightSettingsNav();
+}
+
+function highlightSettingsNav() {
+  document.querySelectorAll('.settings-nav-item').forEach((item) => {
+    const active = item.dataset.target === state.settingsSelected;
+    item.classList.toggle('is-active', active);
+    if (active) {
+      item.setAttribute('aria-current', 'page');
+    } else {
+      item.removeAttribute('aria-current');
+    }
+  });
+}
+
+function updateCardTitle(card) {
+  const title = card.querySelector('.db-panel-title');
+  if (!title) {
+    return;
+  }
+  const kind = card.querySelector('.db-kind-select').value;
+  title.textContent = card.querySelector('.db-name-input').value.trim() || defaultDatabaseName(kind);
+}
+
+// 保存の状態の表示（未保存の変更・保存中・保存しました・失敗）。
+function setSaveStatus(kind, message) {
+  if (!saveStatusEl) {
+    return;
+  }
+  saveStatusEl.textContent = message || '';
+  saveStatusEl.className = kind ? `save-status is-${kind}` : 'save-status';
+  if (saveConfigBtn) {
+    saveConfigBtn.classList.toggle('is-dirty', kind === 'dirty');
+  }
+}
+
+function markSettingsDirty() {
+  if (state.mode !== 'settings') {
+    return;
+  }
+  setSaveStatus('dirty', '未保存の変更があります');
 }
 
 function collectDatabases() {
@@ -1322,7 +1421,9 @@ async function saveConfig() {
     saveConfigBtn.classList.remove('is-saved', 'is-error');
     saveConfigBtn.classList.add('is-saving');
   }
+  setSaveStatus('saving', '保存しています…');
   try {
+    await saveTokenIfEdited();
     const cfg = {
       ...state.config,
       databases: collectDatabases(),
@@ -1334,6 +1435,7 @@ async function saveConfig() {
     const nextView = state.dbMap.has(state.view) ? state.view : pickDefaultView();
     setView(nextView);
     setError('');
+    setSaveStatus('success', `✓ 保存しました（${formatTime(new Date().toISOString())}）`);
     if (saveConfigBtn) {
       saveConfigBtn.classList.remove('is-saving');
       saveConfigBtn.classList.add('is-saved');
@@ -1342,7 +1444,7 @@ async function saveConfig() {
       }, 700);
     }
   } catch (err) {
-    setError(err.message);
+    setSaveStatus('error', `保存できませんでした: ${err.message}`);
     if (saveConfigBtn) {
       saveConfigBtn.classList.remove('is-saving');
       saveConfigBtn.classList.add('is-error');
@@ -1358,33 +1460,59 @@ async function saveConfig() {
   }
 }
 
-async function refreshTokenStatus() {
-  const tokenSet = await rpc('getTokenStatus');
-  state.tokenSet = Boolean(tokenSet);
-  tokenHint.textContent = tokenSet ? '保存済み' : '未保存';
-  if (tokenSet) {
-    tokenInput.value = '●●●●●●●●●●●●';
-    tokenInput.disabled = true;
-  } else {
-    tokenInput.value = '';
-    tokenInput.disabled = false;
+// トークンは、入力欄に新しい値が入っているときだけ、設定と一緒に保存する。
+async function saveTokenIfEdited() {
+  if (tokenInput.disabled) {
+    return;
   }
-  setStatusChip();
-}
-
-async function saveToken() {
   const token = tokenInput.value.trim();
-  if (!token || token === '●●●●●●●●●●●●') {
-    setError('トークンが空です');
+  if (!token) {
     return;
   }
   await rpc('setToken', { token });
   await refreshTokenStatus();
 }
 
+async function refreshTokenStatus() {
+  const tokenSet = await rpc('getTokenStatus');
+  state.tokenSet = Boolean(tokenSet);
+  if (tokenSet) {
+    tokenHint.textContent = '保存済み。変えるときは「変更」を押して入力し、保存してください';
+    tokenInput.value = '●●●●●●●●●●●●';
+    tokenInput.disabled = true;
+    saveTokenBtn.hidden = false;
+    clearTokenBtn.hidden = false;
+  } else {
+    tokenHint.textContent = '未設定。トークンを入力して「保存」を押してください';
+    tokenInput.value = '';
+    tokenInput.disabled = false;
+    saveTokenBtn.hidden = true;
+    clearTokenBtn.hidden = true;
+  }
+  setStatusChip();
+}
+
+// 「変更」: 入力欄を空にして、新しいトークンを入れられるようにする（保存は「保存」ボタンで行う）。
+function beginTokenEdit() {
+  tokenInput.disabled = false;
+  tokenInput.value = '';
+  tokenInput.focus();
+  saveTokenBtn.hidden = true;
+  tokenHint.textContent = '新しいトークンを入力して「保存」を押してください';
+  markSettingsDirty();
+}
+
 async function clearToken() {
-  await rpc('clearToken');
-  await refreshTokenStatus();
+  if (!confirm('Notion API トークンを削除しますか？')) {
+    return;
+  }
+  try {
+    await rpc('clearToken');
+    await refreshTokenStatus();
+    setSaveStatus('success', '✓ トークンを削除しました');
+  } catch (err) {
+    setSaveStatus('error', `トークンを削除できませんでした: ${err.message}`);
+  }
 }
 
 async function loadDatabaseProperties(card, opts = {}) {
@@ -1422,15 +1550,9 @@ async function loadDatabaseProperties(card, opts = {}) {
       setPropertyHint(card, `プロパティが見つかりませんでした (${timeLabel})`);
       return;
     }
-    const titleCount = props.filter((prop) => prop.type === 'title').length;
-    const statusCount = props.filter((prop) => prop.type === 'status').length;
-    const checkboxCount = props.filter((prop) => prop.type === 'checkbox').length;
-    setPropertyHint(
-      card,
-      `取得: タイトル${titleCount} / ステータス${statusCount} / チェック${checkboxCount} (${timeLabel})`
-    );
+    setPropertyHint(card, `✓ 読み込み済み（プロパティ ${props.length} 件、${timeLabel}）`);
   } catch (err) {
-    setPropertyHint(card, '取得に失敗しました');
+    setPropertyHint(card, `読み込めませんでした: ${err.message}`);
     if (!opts.silent) setError(err.message);
   } finally {
     setPropertyHint(card, card.querySelector('.db-props-text')?.textContent || '', false);
@@ -1451,6 +1573,9 @@ function addDatabase() {
     status_property_type: 'status',
   });
   databaseList.appendChild(card);
+  renderSettingsNav();
+  selectSettingsPanel(card.dataset.key);
+  markSettingsDirty();
 }
 
 function startPolling() {
@@ -1480,7 +1605,14 @@ function bindUI() {
   });
 
   saveConfigBtn.addEventListener('click', saveConfig);
-  saveTokenBtn.addEventListener('click', saveToken);
+  saveTokenBtn.addEventListener('click', beginTokenEdit);
+  document
+    .querySelector('.settings-nav-item[data-target="general"]')
+    ?.addEventListener('click', () => selectSettingsPanel('general'));
+  // 設定画面の入力が変わったら「未保存の変更があります」を出す
+  const settingsPaneEl = paneContainer.querySelector('.pane[data-pane="settings"]');
+  settingsPaneEl?.addEventListener('input', markSettingsDirty);
+  settingsPaneEl?.addEventListener('change', markSettingsDirty);
   clearTokenBtn.addEventListener('click', clearToken);
   addDatabaseBtn.addEventListener('click', addDatabase);
   if (openSettingsBtn) {

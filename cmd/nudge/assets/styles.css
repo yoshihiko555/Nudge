@@ -1397,3 +1397,231 @@ button.task-group-header.is-open::before {
   background: #f59e0b;
   transform: translateX(-50%);
 }
+
+/* v2 設定画面: 左に一覧・右に詳細 */
+label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#app[data-mode="settings"] #lastUpdated,
+#app[data-mode="settings"] #syncStatus {
+  display: none;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-db-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: var(--accent-glow);
+  color: var(--ink);
+}
+
+.settings-nav-item.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.settings-nav-item .nav-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-nav-item.is-active .nav-sub {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-nav-label {
+  margin: 14px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings-nav-add {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-glass);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-add:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.settings-content {
+  max-width: 560px;
+  min-width: 0;
+}
+
+.settings-panel[hidden],
+.database-card[hidden] {
+  display: none;
+}
+
+#app[data-mode="settings"] .database-card {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  gap: 0;
+}
+
+.database-header h2 {
+  margin: 0 0 4px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border-glass);
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+.input-with-button input {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.db-advanced:not([open]) {
+  gap: 0;
+}
+
+.database-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-glass);
+}
+
+.btn.danger-outline {
+  background: transparent;
+  color: var(--accent-2);
+  border: 1px solid var(--accent-2);
+  box-shadow: none;
+}
+
+.link-danger {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link-danger[hidden],
+#saveTokenBtn[hidden] {
+  display: none;
+}
+
+/* 下に固定する保存の行 */
+.settings-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border-glass);
+  background: var(--card);
+}
+
+.save-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.save-status.is-dirty {
+  color: #f59e0b;
+}
+
+.save-status.is-success {
+  color: #34c759;
+  font-weight: 600;
+}
+
+.save-status.is-error {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+#saveConfigBtn.is-dirty {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);
+}
+
+#app[data-mode="settings"] .db-name-input {
+  width: 100%;
+}
