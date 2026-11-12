@@ -13,7 +13,11 @@
       "status_in_progress": "In Progress",
       "status_done": "Done",
       "status_paused": "Paused",
-      "checkbox_property_name": ""
+      "checkbox_property_name": "",
+      "due_date_property_name": "",
+      "priority_property_name": "",
+      "priority_order": [],
+      "goal_property_name": ""
     },
     {
       "key": "habits",
@@ -28,7 +32,11 @@
       "status_in_progress": "",
       "status_done": "",
       "status_paused": "",
-      "checkbox_property_name": "日,月,火,水,木,金,土"
+      "checkbox_property_name": "日,月,火,水,木,金,土",
+      "due_date_property_name": "",
+      "priority_property_name": "",
+      "priority_order": [],
+      "goal_property_name": ""
     }
   ],
   "poll_interval_seconds": 60,

@@ -158,6 +158,24 @@
                   <option value="">-- 未設定 --</option>
                 </select>
               </div>
+              <div class="form-block">
+                <label>期日プロパティ（Date）</label>
+                <select class="db-due-date-property">
+                  <option value="">-- 未設定 --</option>
+                </select>
+                <p class="hint db-v2-hint"></p>
+              </div>
+              <div class="form-block">
+                <label>優先度プロパティ（Select）</label>
+                <select class="db-priority-property">
+                  <option value="">-- 未設定 --</option>
+                </select>
+                <p class="hint db-v2-hint"></p>
+              </div>
+              <div class="form-block db-priority-order-block" hidden>
+                <label>優先度の順（上ほど高い）</label>
+                <ol class="db-priority-order"></ol>
+              </div>
             </div>
 
             <div class="db-fields" data-kind="habit">
@@ -172,6 +190,7 @@
       </template>
 
       <footer class="footer">
+        <div id="syncStatus" class="sync-status"></div>
         <div id="lastUpdated">未更新</div>
         <div id="errorText"></div>
       </footer>

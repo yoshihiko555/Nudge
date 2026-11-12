@@ -2,6 +2,7 @@ const appEl = document.getElementById('app');
 const statusChip = document.getElementById('statusChip');
 const lastUpdated = document.getElementById('lastUpdated');
 const errorText = document.getElementById('errorText');
+const syncStatusEl = document.getElementById('syncStatus');
 
 const tokenInput = document.getElementById('tokenInput');
 const tokenHint = document.getElementById('tokenHint');
@@ -241,6 +242,122 @@ function applyPropertyOptions(card, properties) {
   if (checkboxInput && !checkboxInput.value.trim() && checkboxOptions.length === 1) {
     checkboxInput.value = checkboxOptions[0];
   }
+  applyV2PropertyOptions(card, properties);
+}
+
+// v2: 期日・優先度のプロパティの候補を、型で絞って選択肢にする。
+function applyV2PropertyOptions(card, properties) {
+  const namesOf = (types) => (properties || []).filter((prop) => types.includes(prop.type)).map((prop) => prop.name);
+  populatePropertySelect(card.querySelector('.db-due-date-property'), namesOf(['date']));
+  populatePropertySelect(card.querySelector('.db-priority-property'), namesOf(['select']));
+  renderPriorityOrder(card);
+}
+
+// 候補の選択肢を作り直す。保存済みの値が候補に無くても選択肢に残す（取得に失敗しても値を消さない）。
+function populatePropertySelect(selectEl, names) {
+  if (!selectEl) {
+    return;
+  }
+  const current = selectEl.value;
+  selectEl.innerHTML = '';
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = '-- 未設定 --';
+  selectEl.appendChild(empty);
+  names.forEach((name) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    selectEl.appendChild(opt);
+  });
+  setSelectValue(selectEl, current);
+  const hint = selectEl.parentElement?.querySelector('.db-v2-hint');
+  if (hint) {
+    hint.textContent = names.length === 0 ? '該当する型のプロパティがありません' : '';
+  }
+}
+
+function setSelectValue(selectEl, value) {
+  if (!selectEl || !value) {
+    return;
+  }
+  const exists = Array.from(selectEl.options).some((opt) => opt.value === value);
+  if (!exists) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = value;
+}
+
+// 選んだ優先度のプロパティの選択肢。プロパティをまだ読んでいなければ null。
+function priorityOptionNames(card, propertyName) {
+  const map = card._propertyOptionsByName;
+  if (!propertyName || !map || !map.has(propertyName)) {
+    return null;
+  }
+  return map.get(propertyName) || [];
+}
+
+// 優先度の順を上ほど高い並びで出す。Notion に無い値は除き、順に無い選択肢は末尾に足す。
+function renderPriorityOrder(card) {
+  const block = card.querySelector('.db-priority-order-block');
+  const listEl = card.querySelector('.db-priority-order');
+  if (!block || !listEl) {
+    return;
+  }
+  const propertyName = card.querySelector('.db-priority-property')?.value || '';
+  block.hidden = !propertyName;
+  listEl.innerHTML = '';
+  if (!propertyName) {
+    card._priorityOrder = [];
+    return;
+  }
+  const options = priorityOptionNames(card, propertyName);
+  let order = [...(card._priorityOrder || [])];
+  if (options) {
+    order = order.filter((value) => options.includes(value));
+    options.forEach((value) => {
+      if (!order.includes(value)) {
+        order.push(value);
+      }
+    });
+  }
+  card._priorityOrder = order;
+  if (order.length === 0) {
+    const row = document.createElement('li');
+    row.className = 'hint';
+    row.textContent = 'プロパティを読み込むと並べ替えられます';
+    listEl.appendChild(row);
+    return;
+  }
+  order.forEach((value, index) => {
+    const row = document.createElement('li');
+    row.className = 'priority-order-row';
+    const label = document.createElement('span');
+    label.textContent = value;
+    row.appendChild(label);
+    row.appendChild(createMoveButton(card, index, -1, '↑', index === 0));
+    row.appendChild(createMoveButton(card, index, 1, '↓', index === order.length - 1));
+    listEl.appendChild(row);
+  });
+}
+
+function createMoveButton(card, index, delta, text, disabled) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn ghost';
+  btn.textContent = text;
+  btn.disabled = disabled;
+  btn.addEventListener('click', () => {
+    const order = [...(card._priorityOrder || [])];
+    const target = index + delta;
+    [order[index], order[target]] = [order[target], order[index]];
+    card._priorityOrder = order;
+    renderPriorityOrder(card);
+  });
+  return btn;
 }
 
 function updateStatusTypeFromProperty(card, name) {
@@ -360,6 +477,11 @@ function renderTabsAndPanes() {
 
       const list = document.createElement('div');
       list.className = 'task-list';
+      // 最初の応答が来るまでは「読み込み中」を出し、空の表示と区別する。
+      const loading = document.createElement('div');
+      loading.className = 'loading-state';
+      loading.textContent = '読み込み中…';
+      list.appendChild(loading);
       const empty = document.createElement('div');
       empty.className = 'empty-state';
       empty.textContent = db.kind === 'habit' ? '今日の習慣がありません' : 'タスクがありません';
@@ -379,6 +501,11 @@ function renderDatabaseSettings(databases) {
   (databases || []).forEach((db) => {
     const card = createDatabaseCard(db);
     databaseList.appendChild(card);
+    // 設定画面を開いたら、期日・優先度などの候補を出すためにプロパティを読み込んでおく。
+    if (state.mode === 'settings' && db.database_id) {
+      card.dataset.lastFetchedDbId = normalizeNotionId(db.database_id);
+      loadDatabaseProperties(card, { silent: true });
+    }
   });
 }
 
@@ -428,6 +555,18 @@ function createDatabaseCard(db) {
   if (checkboxInput) {
     checkboxInput.value = db.checkbox_property_name || defaultHabitDays;
   }
+  setSelectValue(card.querySelector('.db-due-date-property'), db.due_date_property_name);
+  const priorityInput = card.querySelector('.db-priority-property');
+  setSelectValue(priorityInput, db.priority_property_name);
+  card._priorityOrder = Array.isArray(db.priority_order) ? [...db.priority_order] : [];
+  card._goalPropertyName = db.goal_property_name || '';
+  if (priorityInput) {
+    priorityInput.addEventListener('change', () => {
+      card._priorityOrder = [];
+      renderPriorityOrder(card);
+    });
+  }
+  renderPriorityOrder(card);
 
   applyDatabaseKind(card, kindSelect.value);
 
@@ -524,8 +663,34 @@ function collectDatabases() {
         kind === 'habit'
           ? card.querySelector('.db-checkbox-property')?.value.trim() || defaultHabitDays
           : '',
+      ...collectV2Fields(card, kind),
     };
   });
+}
+
+// v2 の設定キー。種類に合わないキーは空で送る（サーバ側でも正規化する）。
+function collectV2Fields(card, kind) {
+  const priorityProperty = kind === 'task' ? card.querySelector('.db-priority-property')?.value.trim() || '' : '';
+  return {
+    due_date_property_name: kind === 'task' ? card.querySelector('.db-due-date-property')?.value.trim() || '' : '',
+    priority_property_name: priorityProperty,
+    priority_order: priorityProperty ? [...(card._priorityOrder || [])] : [],
+    goal_property_name: card._goalPropertyName || '',
+  };
+}
+
+// タスクのまとまり（Go 側の group の値と見出し）。表示の順もこの並び。
+const TASK_GROUPS = [
+  { key: 'overdue', label: '期限切れ' },
+  { key: 'today', label: '今日' },
+  { key: 'in_progress', label: '進行中' },
+  { key: 'upcoming', label: '直近 7 日', collapsible: true },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function usesDueDateView(db) {
+  return Boolean(db?.due_date_property_name && db?.status_in_progress && db?.status_done && db?.status_paused);
 }
 
 function renderTasks(listEl, emptyEl, tasks, dbKey) {
@@ -536,51 +701,167 @@ function renderTasks(listEl, emptyEl, tasks, dbKey) {
   }
   emptyEl.style.display = 'none';
   const db = state.dbMap.get(dbKey);
-  const canDone = Boolean(db?.status_done);
-  const canPause = Boolean(db?.status_paused);
 
-  tasks.forEach((task) => {
-    const card = document.createElement('div');
-    card.className = 'task-card';
-
-    const title = document.createElement('div');
-    title.className = 'task-title';
-    title.textContent = task.title || '(無題)';
-
-    const meta = document.createElement('div');
-    meta.className = 'task-meta';
-    meta.innerHTML = `<span>更新 ${formatTime(task.last_edited_time)}</span>`;
-
-    const actions = document.createElement('div');
-    actions.className = 'task-actions';
-
-    const openBtn = document.createElement('button');
-    openBtn.className = 'btn ghost';
-    openBtn.textContent = 'Notionで開く';
-    openBtn.addEventListener('click', () => openURL(task.url));
-    actions.appendChild(openBtn);
-
-    if (canDone) {
-      const doneBtn = document.createElement('button');
-      doneBtn.className = 'btn';
-      doneBtn.textContent = '完了';
-      doneBtn.addEventListener('click', () => updateTaskStatus(task.id, 'done', dbKey));
-      actions.appendChild(doneBtn);
+  // 期日を使わない DB は v1 と同じく見出しなしで並べる（NFR-02）。
+  // 手元の設定が古くても、Go 側が期日のまとまりを付けて返していれば見出しを出す。
+  const hasDueGroups = tasks.some((task) => task.group && task.group !== 'in_progress');
+  if (!usesDueDateView(db) && !hasDueGroups) {
+    tasks.forEach((task) => listEl.appendChild(createTaskCard(task, db, dbKey)));
+    return;
+  }
+  TASK_GROUPS.forEach((group) => {
+    const items = tasks.filter((task) => task.group === group.key);
+    if (items.length === 0) {
+      return;
     }
-
-    if (canPause) {
-      const pauseBtn = document.createElement('button');
-      pauseBtn.className = 'btn ghost';
-      pauseBtn.textContent = '中断';
-      pauseBtn.addEventListener('click', () => updateTaskStatus(task.id, 'paused', dbKey));
-      actions.appendChild(pauseBtn);
-    }
-
-    card.appendChild(title);
-    card.appendChild(meta);
-    card.appendChild(actions);
-    listEl.appendChild(card);
+    listEl.appendChild(createTaskGroup(group, items, db, dbKey));
   });
+}
+
+function createTaskGroup(group, items, db, dbKey) {
+  const section = document.createElement('section');
+  section.className = `task-group task-group-${group.key}`;
+
+  const header = document.createElement(group.collapsible ? 'button' : 'div');
+  header.className = 'task-group-header';
+  header.textContent = `${group.label}（${items.length}）`;
+  section.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'task-group-body';
+  items.forEach((task) => body.appendChild(createTaskCard(task, db, dbKey)));
+  section.appendChild(body);
+
+  if (group.collapsible) {
+    header.type = 'button';
+    const applyOpen = (open) => {
+      body.hidden = !open;
+      header.classList.toggle('is-open', open);
+      header.setAttribute('aria-expanded', String(open));
+    };
+    applyOpen(readUpcomingOpen(dbKey));
+    header.addEventListener('click', () => {
+      const open = body.hidden;
+      applyOpen(open);
+      writeUpcomingOpen(dbKey, open);
+    });
+  }
+  return section;
+}
+
+function upcomingOpenKey(dbKey) {
+  return `nudge.upcomingOpen.${dbKey}`;
+}
+
+// 「直近 7 日」の開閉は見た目だけの状態なので localStorage に置く。読めなければ閉じた状態にする。
+function readUpcomingOpen(dbKey) {
+  try {
+    return window.localStorage.getItem(upcomingOpenKey(dbKey)) === '1';
+  } catch (err) {
+    return false;
+  }
+}
+
+function writeUpcomingOpen(dbKey, open) {
+  try {
+    window.localStorage.setItem(upcomingOpenKey(dbKey), open ? '1' : '0');
+  } catch (err) {
+    // 保存できなくても表示は続ける。
+  }
+}
+
+function parseLocalDate(value) {
+  const [y, m, d] = (value || '').split('-').map(Number);
+  if (!y || !m || !d) {
+    return null;
+  }
+  return new Date(y, m - 1, d);
+}
+
+function formatDueLabel(task) {
+  if (!task.due_date) {
+    return '';
+  }
+  if (task.group === 'today') {
+    return '今日';
+  }
+  const due = parseLocalDate(task.due_date);
+  if (!due) {
+    return task.due_date;
+  }
+  const label = `${due.getMonth() + 1}/${due.getDate()}`;
+  if (task.group !== 'overdue') {
+    return label;
+  }
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((today - due) / DAY_MS);
+  return days > 0 ? `${label}（${days} 日超過）` : label;
+}
+
+function createTaskCard(task, db, dbKey) {
+  const card = document.createElement('div');
+  card.className = 'task-card';
+  if (task.group === 'overdue') {
+    card.classList.add('is-overdue');
+  }
+
+  const title = document.createElement('div');
+  title.className = 'task-title';
+  title.textContent = task.title || '(無題)';
+
+  const meta = document.createElement('div');
+  meta.className = 'task-meta';
+  const info = document.createElement('span');
+  info.className = 'task-meta-info';
+  const dueLabel = formatDueLabel(task);
+  if (dueLabel) {
+    const due = document.createElement('span');
+    due.className = 'task-due';
+    due.textContent = dueLabel;
+    info.appendChild(due);
+  }
+  if (task.priority) {
+    const priority = document.createElement('span');
+    priority.className = 'task-priority';
+    priority.textContent = task.priority;
+    info.appendChild(priority);
+  }
+  const edited = document.createElement('span');
+  edited.textContent = `更新 ${formatTime(task.last_edited_time)}`;
+  meta.appendChild(info);
+  meta.appendChild(edited);
+
+  card.appendChild(title);
+  card.appendChild(meta);
+  card.appendChild(createTaskActions(task, db, dbKey));
+  return card;
+}
+
+// 未着手のタスクは「開始」「完了」、進行中のタスクは「完了」「中断」を出す。値が未設定のボタンは出さない。
+function createTaskActions(task, db, dbKey) {
+  const actions = document.createElement('div');
+  actions.className = 'task-actions';
+  const addButton = (label, className, onClick) => {
+    const btn = document.createElement('button');
+    btn.className = className;
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    actions.appendChild(btn);
+  };
+
+  addButton('Notionで開く', 'btn ghost', () => openURL(task.url));
+  const inProgress = task.is_in_progress !== false;
+  if (!inProgress && db?.status_in_progress) {
+    addButton('開始', 'btn', () => updateTaskStatus(task.id, 'resume', dbKey));
+  }
+  if (db?.status_done) {
+    addButton('完了', inProgress ? 'btn' : 'btn ghost', () => updateTaskStatus(task.id, 'done', dbKey));
+  }
+  if (inProgress && db?.status_paused) {
+    addButton('中断', 'btn ghost', () => updateTaskStatus(task.id, 'paused', dbKey));
+  }
+  return actions;
 }
 
 function renderHabits(listEl, emptyEl, habits, dbKey) {
@@ -647,8 +928,58 @@ async function refreshDatabaseView(dbKey, force = false) {
     }
     lastUpdated.textContent = `更新 ${formatTime(new Date().toISOString())}`;
   } catch (err) {
+    clearLoading(pane);
     setError(err.message);
+  } finally {
+    refreshSyncState();
   }
+}
+
+function clearLoading(pane) {
+  const loading = pane.listEl.querySelector('.loading-state');
+  if (loading) {
+    loading.remove();
+  }
+}
+
+// 取得失敗の種類ごとの表示（詳細設計 1.4）。
+const ERROR_KIND_LABELS = {
+  auth: '権限がありません',
+  not_shared: 'DB が共有されていません',
+  rate_limited: '混み合っています',
+  server: 'Notion 側のエラー',
+  network: '通信エラー',
+  config: '設定を確認してください',
+  unknown: '不明なエラー',
+};
+
+async function refreshSyncState() {
+  if (state.mode === 'settings' || !syncStatusEl) {
+    return;
+  }
+  try {
+    renderSyncState(await rpc('getSyncState'));
+  } catch (err) {
+    syncStatusEl.textContent = '';
+  }
+}
+
+function renderSyncState(states) {
+  const list = states || [];
+  const messages = [];
+  const failed = list.filter((s) => !s.ok);
+  if (failed.length > 0) {
+    const first = failed[0];
+    const label = ERROR_KIND_LABELS[first.error_kind] || ERROR_KIND_LABELS.unknown;
+    const rest = failed.length > 1 ? ` ほか ${failed.length - 1} 件` : '';
+    messages.push(`取得に失敗: ${first.name}（${label}） ${formatTime(first.last_attempt_at)}${rest}`);
+  }
+  if (list.some((s) => s.history_ok === false)) {
+    messages.push('過去の習慣の取得に失敗（連続週数は前回の値）');
+  }
+  list.filter((s) => s.truncated).forEach((s) => messages.push(`${s.name} の件数が多すぎて一部を省きました`));
+  syncStatusEl.textContent = messages.join(' / ');
+  syncStatusEl.classList.toggle('is-error', messages.length > 0);
 }
 
 function refreshActiveView(force = false) {
@@ -903,6 +1234,21 @@ function bindUI() {
 
   wails.Events.On('refresh', () => {
     refreshActiveView(true);
+  });
+
+  // 設定ウィンドウで保存されたら、設定を読み直してタブと一覧を作り直す。
+  wails.Events.On('config-updated', async () => {
+    if (state.mode === 'settings') {
+      return;
+    }
+    const view = state.view;
+    try {
+      await loadConfig();
+      setView(view);
+      refreshActiveView(false);
+    } catch (err) {
+      setError(err.message);
+    }
   });
 }
 
