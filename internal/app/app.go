@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ type App struct {
 	syncStates map[string]syncRecord
 	// generation は設定を保存するたびに増える。取得を始めた時と違えば、その結果は書かない。
 	generation uint64
+	// ready は起動後の最初の取得が終わったか。reloading は設定の保存後の取り直しの途中か。
+	ready     bool
+	reloading bool
+	// notifier は件数が変わりうるときに合図を送る先（メニューバーのラベル）。
+	notifier chan<- struct{}
 
 	now func() time.Time
 	// loc は「今日」「週」を判定するタイムゾーン（既定は Mac の設定）。テストでは固定する。
@@ -96,6 +102,7 @@ func (a *App) invalidateCaches() {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
 	a.generation++
+	a.reloading = true
 	a.taskCache = make(map[string][]dto.Task)
 	a.habitCache = make(map[string][]dto.Task)
 	a.syncStates = make(map[string]syncRecord)
@@ -193,6 +200,7 @@ func (a *App) GetTasks(ctx context.Context, databaseKey string, force bool) ([]d
 		}
 	}
 	err = a.forceRefresh(func() (bool, error) { return a.refreshTaskDatabase(ctx, databaseKey) })
+	a.notifySummary()
 	tasks, ok := a.getTaskCache(databaseKey)
 	if !ok {
 		if err == nil {
@@ -257,6 +265,7 @@ func (a *App) GetHabits(ctx context.Context, databaseKey string, force bool) ([]
 		}
 	}
 	err := a.forceRefresh(func() (bool, error) { return a.refreshHabitDatabase(ctx, databaseKey) })
+	a.notifySummary()
 	habits, ok := a.getHabitCache(databaseKey)
 	if !ok {
 		if err == nil {
@@ -343,6 +352,7 @@ func (a *App) StartPolling(ctx context.Context, refresh func([]dto.Task)) error 
 	}
 	p := &syncer.Poller{
 		Interval: interval,
+		Logger:   slog.Default(),
 		Refresh: func(ctx context.Context) error {
 			tasks, err := a.RefreshTasks(ctx)
 			if err != nil {
@@ -373,6 +383,7 @@ func (a *App) StartBackgroundPolling() {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &syncer.Poller{
 		Interval: interval,
+		Logger:   slog.Default(),
 		Refresh: func(ctx context.Context) error {
 			return a.refreshAll(ctx)
 		},
@@ -410,10 +421,19 @@ func (a *App) currentConfig() dto.Config {
 	return a.cfg
 }
 
+// refreshAll は有効な全 DB を取り直し、終わったら件数の合図を送る（詳細設計 5.1）。
 func (a *App) refreshAll(ctx context.Context) error {
+	err := a.refreshAllLocked(ctx)
+	a.notifySummary()
+	return err
+}
+
+func (a *App) refreshAllLocked(ctx context.Context) error {
 	a.refreshMu.Lock()
 	defer a.refreshMu.Unlock()
 
+	gen := a.currentGeneration()
+	defer a.markRefreshed(gen)
 	cfg := a.currentConfig()
 	var firstErr error
 	for _, db := range cfg.Databases {
@@ -444,6 +464,17 @@ func (a *App) getTaskCache(key string) ([]dto.Task, bool) {
 	return cloneTasks(tasks), true
 }
 
+// markRefreshed は全 DB の取得が一巡したことを記録する。始めた時から設定が変わっていなければ、
+// 設定の保存後の取り直しも終わったとみなす。
+func (a *App) markRefreshed(gen uint64) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	a.ready = true
+	if gen == a.generation {
+		a.reloading = false
+	}
+}
+
 func (a *App) currentGeneration() uint64 {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
@@ -465,6 +496,8 @@ func (a *App) storeResult(kind, key string, gen uint64, items []dto.Task, trunca
 	if err != nil {
 		rec.ok = false
 		rec.errorKind = classifyError(err)
+		// 失敗は DB 名と種類をログに残す（NFR-06）。トークンはエラーに含まれない。
+		slog.Warn("notion fetch failed", "database", key, "kind", rec.errorKind, "error", err)
 		a.syncStates[key] = rec
 		return true
 	}
