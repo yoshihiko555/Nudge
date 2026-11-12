@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"nudge/internal/dto"
+	"nudge/internal/notion"
 )
 
 func TestFormatTrayLabel(t *testing.T) {
@@ -40,7 +41,7 @@ func trayTestApp(t *testing.T) *App {
 	t.Helper()
 	taskDB := legacyTaskDB()
 	taskDB.DueDatePropertyName = "期限日"
-	habitDB := dto.DatabaseConfig{Key: "habits", Name: "習慣", Kind: dto.DatabaseKindHabit, Enabled: true}
+	habitDB := dto.DatabaseConfig{Key: "habits", Name: "習慣", Kind: dto.DatabaseKindHabit, Enabled: true, CheckboxPropertyName: "日,月,火,水,木,金,土"}
 	disabled := legacyTaskDB()
 	disabled.Key = "off"
 	disabled.Enabled = false
@@ -66,7 +67,14 @@ func TestTraySummary_CountsDueTasksAndHabits(t *testing.T) {
 		{ID: "later", Status: "待ち", DueDate: "2026-11-14"},
 		{ID: "progress", Status: "進行中"},
 	}
-	a.habitCache["habits"] = []dto.Task{{ID: "h1"}, {ID: "h2"}}
+	// 今日は木曜（today_index 4）。残っている習慣は、今日が未チェックで今週の目標に届いていないものだけ。
+	created := time.Date(2026, 11, 8, 0, 30, 0, 0, jst)
+	a.habitWeek["habits"] = habitWeekRecord{loaded: true, pages: []notion.HabitPage{
+		{ID: "remain-1", Title: "ストレッチ", CreatedTime: created, Goal: "週３回"},
+		{ID: "remain-2", Title: "読書", CreatedTime: created, Goal: ""},
+		{ID: "checked-today", Title: "掃除", CreatedTime: created, Goal: "週２回", Days: [7]bool{4: true}},
+		{ID: "goal-reached", Title: "薬", CreatedTime: created, Goal: "週２回", Days: [7]bool{true, true}},
+	}}
 	a.taskCache["off"] = []dto.Task{{ID: "ignored", Status: "待ち", DueDate: "2026-11-01"}}
 	a.cacheMu.Unlock()
 
