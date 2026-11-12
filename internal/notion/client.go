@@ -20,6 +20,13 @@ import (
 const (
 	defaultBaseURL       = "https://api.notion.com"
 	defaultNotionVersion = "2025-09-03"
+
+	// queryPageSize は 1 回の問い合わせで取る件数（Notion の上限）。
+	queryPageSize = 100
+	// maxQueryPages はページ送りの打ち切り（5,000 件）。超えたら truncated として扱う。
+	maxQueryPages = 50
+	// dueDateLookaheadDays は問い合わせで期日を取る範囲（今日＋7 日に、UTC との差の余裕 1 日を足す）。
+	dueDateLookaheadDays = 8
 )
 
 type Client struct {
@@ -87,6 +94,73 @@ func (c *Client) QueryByStatus(ctx context.Context, db dto.DatabaseConfig, notio
 		return nil, err
 	}
 	return mapTasks(resp.Results, db.TitlePropertyName, db.StatusPropertyName, ""), nil
+}
+
+// TaskQueryResult はタスクの問い合わせの結果。
+type TaskQueryResult struct {
+	Tasks     []dto.Task
+	Truncated bool
+}
+
+// QueryTasks は v2 のタスクの問い合わせ。期日つきの設定なら
+// 「進行中 または（期日 ≦ 今日＋8 日 かつ 完了・中断でない）」を全件取り、
+// そうでなければ v1 と同じ「進行中のみ」（max_results 件まで）を取る。
+// now は「今日」の基準で、期日は now のタイムゾーンの日付に直す。
+func (c *Client) QueryTasks(ctx context.Context, db dto.DatabaseConfig, notionVersion string, maxResults int, now time.Time) (TaskQueryResult, error) {
+	if !db.UsesDueDateQuery() {
+		tasks, err := c.QueryByStatus(ctx, db, notionVersion, maxResults, db.StatusInProgress)
+		return TaskQueryResult{Tasks: tasks}, err
+	}
+	if err := db.ValidateForTaskQuery(notionVersion, db.StatusInProgress); err != nil {
+		return TaskQueryResult{}, err
+	}
+	until := now.AddDate(0, 0, dueDateLookaheadDays).Format(dateOnlyLayout)
+	body := map[string]any{
+		"filter": buildDueTaskFilter(db, until),
+		"sorts": []map[string]any{{
+			"timestamp": "last_edited_time",
+			"direction": "descending",
+		}},
+	}
+	pages, truncated, err := c.queryAll(ctx, db.DataSourceID, body, notionVersion)
+	if err != nil {
+		return TaskQueryResult{}, err
+	}
+	fields := taskFields{
+		Title:    db.TitlePropertyName,
+		Status:   db.StatusPropertyName,
+		DueDate:  db.DueDatePropertyName,
+		Priority: db.PriorityPropertyName,
+	}
+	return TaskQueryResult{Tasks: mapTaskPages(pages, fields, now.Location()), Truncated: truncated}, nil
+}
+
+// queryAll はページ送りで全件を取る。maxQueryPages で打ち切ったら truncated を true にする。
+// 途中のページで失敗したら、途中までの結果は返さない。
+func (c *Client) queryAll(ctx context.Context, dataSourceID string, body map[string]any, notionVersion string) ([]page, bool, error) {
+	path := fmt.Sprintf("/v1/data_sources/%s/query", dataSourceID)
+	var all []page
+	cursor := ""
+	for i := 0; i < maxQueryPages; i++ {
+		req := make(map[string]any, len(body)+2)
+		for k, v := range body {
+			req[k] = v
+		}
+		req["page_size"] = queryPageSize
+		if cursor != "" {
+			req["start_cursor"] = cursor
+		}
+		var resp queryResponse
+		if err := c.doJSON(ctx, http.MethodPost, path, req, &resp, notionVersion); err != nil {
+			return nil, false, err
+		}
+		all = append(all, resp.Results...)
+		if !resp.HasMore || resp.NextCursor == "" {
+			return all, false, nil
+		}
+		cursor = resp.NextCursor
+	}
+	return all, true, nil
 }
 
 func (c *Client) UpdateStatus(ctx context.Context, pageID string, db dto.DatabaseConfig, notionVersion string, statusValue string) error {
@@ -251,15 +325,39 @@ func extractOptionNames(options []databaseOption) []string {
 }
 
 func buildStatusFilter(name, typ, value string) map[string]any {
+	return buildStatusCondition(name, typ, "equals", value)
+}
+
+// buildStatusCondition はステータスの条件を、プロパティの型（status / select）に合わせたキーで組む。
+func buildStatusCondition(name, typ, op, value string) map[string]any {
+	key := "status"
 	if typ == "select" {
-		return map[string]any{
-			"property": name,
-			"select":   map[string]any{"equals": value},
-		}
+		key = "select"
 	}
 	return map[string]any{
 		"property": name,
-		"status":   map[string]any{"equals": value},
+		key:        map[string]any{op: value},
+	}
+}
+
+// buildDueTaskFilter は「進行中 または（期日 ≦ until かつ 完了でない かつ 中断でない）」を組む。
+// Notion の複合フィルタの上限（2 段）に収まる。
+func buildDueTaskFilter(db dto.DatabaseConfig, until string) map[string]any {
+	name, typ := db.StatusPropertyName, db.StatusPropertyType
+	return map[string]any{
+		"or": []map[string]any{
+			buildStatusCondition(name, typ, "equals", db.StatusInProgress),
+			{
+				"and": []map[string]any{
+					{
+						"property": db.DueDatePropertyName,
+						"date":     map[string]any{"on_or_before": until},
+					},
+					buildStatusCondition(name, typ, "does_not_equal", db.StatusDone),
+					buildStatusCondition(name, typ, "does_not_equal", db.StatusPaused),
+				},
+			},
+		},
 	}
 }
 
@@ -348,7 +446,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 			lastErr = fmt.Errorf("notion error: %s", strings.TrimSpace(string(b)))
 			continue
 		}
-		return fmt.Errorf("notion error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return newAPIError(resp.StatusCode, b)
 	}
 	return lastErr
 }

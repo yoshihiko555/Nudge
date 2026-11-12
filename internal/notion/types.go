@@ -2,28 +2,40 @@ package notion
 
 import (
 	"strings"
+	"time"
 
 	"nudge/internal/dto"
 )
 
 type queryResponse struct {
-	Results []page `json:"results"`
+	Results    []page `json:"results"`
+	HasMore    bool   `json:"has_more"`
+	NextCursor string `json:"next_cursor"`
 }
 
 type page struct {
 	ID             string                   `json:"id"`
 	URL            string                   `json:"url"`
+	CreatedTime    string                   `json:"created_time"`
 	LastEditedTime string                   `json:"last_edited_time"`
 	Properties     map[string]propertyValue `json:"properties"`
 	Icon           *pageIcon                `json:"icon"`
 }
 
 type propertyValue struct {
-	Type     string `json:"type"`
-	Title    []text `json:"title"`
-	Status   *name  `json:"status"`
-	Select   *name  `json:"select"`
-	Checkbox *bool  `json:"checkbox"`
+	Type     string     `json:"type"`
+	Title    []text     `json:"title"`
+	Status   *name      `json:"status"`
+	Select   *name      `json:"select"`
+	Checkbox *bool      `json:"checkbox"`
+	Date     *dateValue `json:"date"`
+	RichText []text     `json:"rich_text"`
+}
+
+type dateValue struct {
+	Start    string  `json:"start"`
+	End      *string `json:"end"`
+	TimeZone *string `json:"time_zone"`
 }
 
 type text struct {
@@ -93,6 +105,43 @@ type block struct {
 
 type blockText struct {
 	RichText []text `json:"rich_text"`
+}
+
+// taskFields はタスクのページから読むプロパティ名。
+type taskFields struct {
+	Title    string
+	Status   string
+	DueDate  string
+	Priority string
+}
+
+// mapTaskPages は期日・優先度も含めてタスクを読む。期日は loc の日付に直す。
+func mapTaskPages(pages []page, fields taskFields, loc *time.Location) []dto.Task {
+	out := make([]dto.Task, 0, len(pages))
+	for _, p := range pages {
+		task := dto.Task{
+			ID:             p.ID,
+			Title:          extractTitle(p.Properties[fields.Title]),
+			URL:            p.URL,
+			Status:         extractStatus(p.Properties[fields.Status]),
+			LastEditedTime: p.LastEditedTime,
+		}
+		if fields.DueDate != "" {
+			task.DueDate = dueDateOf(p.Properties[fields.DueDate].Date, loc)
+		}
+		if fields.Priority != "" {
+			task.Priority = extractSelectName(p.Properties[fields.Priority])
+		}
+		out = append(out, task)
+	}
+	return out
+}
+
+func extractSelectName(prop propertyValue) string {
+	if prop.Type != "select" || prop.Select == nil {
+		return ""
+	}
+	return prop.Select.Name
 }
 
 func mapTasks(pages []page, titlePropertyName, statusPropertyName, checkboxPropertyName string) []dto.Task {

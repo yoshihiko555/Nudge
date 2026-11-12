@@ -297,6 +297,10 @@ func handleRawMessage(core *coreapp.App, app *application.App, popover *applicat
 		}
 		core.StartBackgroundPolling()
 		updateTrayMenu(app, popover, settingsWindow, systray, core.GetConfig())
+		// 設定ウィンドウで保存した内容を、小窓にも読み直させる（小窓は起動時に設定を読んだきりのため）。
+		if popover != nil {
+			popover.EmitEvent("config-updated")
+		}
 		respond(rpcResponse{ID: req.ID, OK: true})
 	case "getTokenStatus":
 		token, err := core.GetToken()
@@ -388,6 +392,8 @@ func handleRawMessage(core *coreapp.App, app *application.App, popover *applicat
 			return
 		}
 		respond(rpcResponse{ID: req.ID, OK: true, Data: habits})
+	case "getSyncState":
+		respond(rpcResponse{ID: req.ID, OK: true, Data: core.GetSyncState()})
 	case "updateStatus":
 		var payload updateStatusPayload
 		if err := json.Unmarshal(req.Payload, &payload); err != nil {

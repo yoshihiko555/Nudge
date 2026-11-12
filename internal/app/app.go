@@ -21,9 +21,17 @@ type App struct {
 	pollerCancel context.CancelFunc
 	pollerMu     sync.Mutex
 	refreshMu    sync.Mutex
-	cacheMu      sync.Mutex
-	taskCache    map[string][]dto.Task
-	habitCache   map[string][]dto.Task
+	// cacheMu はキャッシュ・取得結果・設定の世代番号を守る（詳細設計 5.5）。
+	cacheMu    sync.Mutex
+	taskCache  map[string][]dto.Task
+	habitCache map[string][]dto.Task
+	syncStates map[string]syncRecord
+	// generation は設定を保存するたびに増える。取得を始めた時と違えば、その結果は書かない。
+	generation uint64
+
+	now func() time.Time
+	// loc は「今日」「週」を判定するタイムゾーン（既定は Mac の設定）。テストでは固定する。
+	loc *time.Location
 
 	mu  sync.Mutex
 	cfg dto.Config
@@ -36,7 +44,15 @@ func NewApp(cfgStore store.ConfigStore, tokenStore store.TokenStore, notionClien
 		notion:     notionClient,
 		taskCache:  make(map[string][]dto.Task),
 		habitCache: make(map[string][]dto.Task),
+		syncStates: make(map[string]syncRecord),
+		now:        time.Now,
+		loc:        time.Local,
 	}
+}
+
+// localNow は判定に使う現在時刻（詳細設計 1.1 の now().In(time.Local)）。
+func (a *App) localNow() time.Time {
+	return a.now().In(a.loc)
 }
 
 func (a *App) LoadConfig() (dto.Config, error) {
@@ -71,7 +87,18 @@ func (a *App) SaveConfig(cfg dto.Config) error {
 	a.mu.Lock()
 	a.cfg = cfg
 	a.mu.Unlock()
+	a.invalidateCaches()
 	return nil
+}
+
+// invalidateCaches は設定の保存のあと、古い設定で取ったデータと取得結果を捨てる（詳細設計 5.4）。
+func (a *App) invalidateCaches() {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	a.generation++
+	a.taskCache = make(map[string][]dto.Task)
+	a.habitCache = make(map[string][]dto.Task)
+	a.syncStates = make(map[string]syncRecord)
 }
 
 func (a *App) GetToken() (string, error) {
@@ -124,33 +151,79 @@ func (a *App) UpdateTaskStatus(ctx context.Context, databaseKey, taskID string, 
 	return a.notion.UpdateStatus(ctx, taskID, db, cfg.NotionVersion, statusValue)
 }
 
+// QueryTasks はタスクを取得し、今の日付でまとまりを付けて並べ替えた結果を返す（キャッシュは使わない）。
 func (a *App) QueryTasks(ctx context.Context, databaseKey string) ([]dto.Task, error) {
+	db, res, err := a.fetchTasks(ctx, databaseKey)
+	if err != nil {
+		return nil, err
+	}
+	return buildTaskView(res.Tasks, db, a.localNow()), nil
+}
+
+func (a *App) fetchTasks(ctx context.Context, databaseKey string) (dto.DatabaseConfig, notion.TaskQueryResult, error) {
 	db, cfg, err := a.resolveDatabase(databaseKey, dto.DatabaseKindTask)
+	if err != nil {
+		return db, notion.TaskQueryResult{}, err
+	}
+	if db.Kind != dto.DatabaseKindTask {
+		return db, notion.TaskQueryResult{}, fmt.Errorf("database kind is not task")
+	}
+	db, err = a.ensureTaskDatabase(ctx, db, cfg.NotionVersion)
+	if err != nil {
+		return db, notion.TaskQueryResult{}, err
+	}
+	res, err := a.notion.QueryTasks(ctx, db, cfg.NotionVersion, cfg.MaxResults, a.localNow())
+	return db, res, err
+}
+
+// GetTasks はタスクのまとまりと並び順を、呼ばれた時点の日付で計算して返す。
+// force ならその場で取り直す。取り直しに失敗してもキャッシュがあれば、エラーにせずキャッシュを返す
+// （失敗は GetSyncState に載る。NFR-04）。キャッシュが無いときだけエラーを返す。
+func (a *App) GetTasks(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
+	db, _, err := a.resolveDatabase(databaseKey, dto.DatabaseKindTask)
 	if err != nil {
 		return nil, err
 	}
 	if db.Kind != dto.DatabaseKindTask {
 		return nil, fmt.Errorf("database kind is not task")
 	}
-	db, err = a.ensureTaskDatabase(ctx, db, cfg.NotionVersion)
-	if err != nil {
-		return nil, err
-	}
-	return a.notion.QueryByStatus(ctx, db, cfg.NotionVersion, cfg.MaxResults, db.StatusInProgress)
-}
-
-func (a *App) GetTasks(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
 	if !force {
 		if tasks, ok := a.getTaskCache(databaseKey); ok {
-			return tasks, nil
+			return buildTaskView(tasks, db, a.localNow()), nil
 		}
 	}
-	tasks, err := a.QueryTasks(ctx, databaseKey)
-	if err != nil {
+	err = a.forceRefresh(func() (bool, error) { return a.refreshTaskDatabase(ctx, databaseKey) })
+	tasks, ok := a.getTaskCache(databaseKey)
+	if !ok {
+		if err == nil {
+			err = errStaleGeneration
+		}
 		return nil, err
 	}
-	a.setTaskCache(databaseKey, tasks)
-	return tasks, nil
+	return buildTaskView(tasks, db, a.localNow()), nil
+}
+
+// errStaleGeneration は、取り直しの途中で設定が保存され続けて結果を書けなかったことを表す。
+var errStaleGeneration = fmt.Errorf("settings changed during refresh; please retry")
+
+// forceRefresh は手動更新・操作後の取り直しを、ポーリング（refreshAll）と同時に走らせずに行う。
+// 途中で設定が保存されて結果を捨てた（書けなかった）ときは、新しい設定で 1 回だけやり直す。
+func (a *App) forceRefresh(refresh func() (bool, error)) error {
+	a.refreshMu.Lock()
+	defer a.refreshMu.Unlock()
+	written, err := refresh()
+	if err == nil && !written {
+		_, err = refresh()
+	}
+	return err
+}
+
+// refreshTaskDatabase は 1 つのタスク DB を取り直し、キャッシュと取得結果を更新する。
+// 途中で設定が保存されて結果を捨てたときは written が false になる。呼び出し側が refreshMu を持つ。
+func (a *App) refreshTaskDatabase(ctx context.Context, databaseKey string) (written bool, err error) {
+	gen := a.currentGeneration()
+	_, res, err := a.fetchTasks(ctx, databaseKey)
+	return a.storeResult(dto.DatabaseKindTask, databaseKey, gen, res.Tasks, res.Truncated, err), err
 }
 
 func (a *App) QueryHabits(ctx context.Context, databaseKey string) ([]dto.Task, error) {
@@ -176,18 +249,50 @@ func (a *App) QueryHabits(ctx context.Context, databaseKey string) ([]dto.Task, 
 	return filterUnchecked(uniqueTasksByTitle(tasks)), nil
 }
 
+// GetHabits は今日の未チェックの習慣を返す。失敗時の返し方は GetTasks と同じ。
 func (a *App) GetHabits(ctx context.Context, databaseKey string, force bool) ([]dto.Task, error) {
 	if !force {
 		if habits, ok := a.getHabitCache(databaseKey); ok {
 			return habits, nil
 		}
 	}
-	habits, err := a.QueryHabits(ctx, databaseKey)
-	if err != nil {
+	err := a.forceRefresh(func() (bool, error) { return a.refreshHabitDatabase(ctx, databaseKey) })
+	habits, ok := a.getHabitCache(databaseKey)
+	if !ok {
+		if err == nil {
+			err = errStaleGeneration
+		}
 		return nil, err
 	}
-	a.setHabitCache(databaseKey, habits)
 	return habits, nil
+}
+
+// refreshHabitDatabase は 1 つの習慣 DB を取り直し、キャッシュと取得結果を更新する。
+// 途中で設定が保存されて結果を捨てたときは written が false になる。呼び出し側が refreshMu を持つ。
+func (a *App) refreshHabitDatabase(ctx context.Context, databaseKey string) (written bool, err error) {
+	gen := a.currentGeneration()
+	habits, err := a.QueryHabits(ctx, databaseKey)
+	return a.storeResult(dto.DatabaseKindHabit, databaseKey, gen, habits, false, err), err
+}
+
+// GetSyncState は有効な DB ごとの最終取得の結果を、設定の並び順で返す（API-006）。
+func (a *App) GetSyncState() []dto.SyncState {
+	cfg := a.currentConfig()
+	a.cacheMu.Lock()
+	records := make(map[string]syncRecord, len(a.syncStates))
+	for k, v := range a.syncStates {
+		records[k] = v
+	}
+	a.cacheMu.Unlock()
+
+	out := make([]dto.SyncState, 0, len(cfg.Databases))
+	for _, db := range cfg.Databases {
+		if !db.Enabled {
+			continue
+		}
+		out = append(out, records[db.Key].toDTO(db))
+	}
+	return out
 }
 
 func (a *App) UpdateHabitCheck(ctx context.Context, databaseKey, taskID string, checked bool) error {
@@ -315,25 +420,15 @@ func (a *App) refreshAll(ctx context.Context) error {
 		if !db.Enabled {
 			continue
 		}
+		var err error
 		switch db.Kind {
 		case dto.DatabaseKindHabit:
-			habits, err := a.QueryHabits(ctx, db.Key)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			a.setHabitCache(db.Key, habits)
+			_, err = a.refreshHabitDatabase(ctx, db.Key)
 		default:
-			tasks, err := a.QueryTasks(ctx, db.Key)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			a.setTaskCache(db.Key, tasks)
+			_, err = a.refreshTaskDatabase(ctx, db.Key)
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 	return firstErr
@@ -349,10 +444,41 @@ func (a *App) getTaskCache(key string) ([]dto.Task, bool) {
 	return cloneTasks(tasks), true
 }
 
-func (a *App) setTaskCache(key string, tasks []dto.Task) {
+func (a *App) currentGeneration() uint64 {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
-	a.taskCache[key] = cloneTasks(tasks)
+	return a.generation
+}
+
+// storeResult は取得の結果をキャッシュと取得結果に書き、書いたかどうかを返す。取得を始めた時の世代と
+// 今の世代が違えば（途中で設定が保存されたら）何も書かずに false を返す。失敗したときはキャッシュを残す。
+func (a *App) storeResult(kind, key string, gen uint64, items []dto.Task, truncated bool, err error) bool {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	if gen != a.generation {
+		return false
+	}
+	now := a.now()
+	rec := a.syncStates[key]
+	rec.attempted = true
+	rec.lastAttempt = now
+	if err != nil {
+		rec.ok = false
+		rec.errorKind = classifyError(err)
+		a.syncStates[key] = rec
+		return true
+	}
+	rec.ok = true
+	rec.lastSuccess = now
+	rec.errorKind = ""
+	rec.truncated = truncated
+	a.syncStates[key] = rec
+	if kind == dto.DatabaseKindHabit {
+		a.habitCache[key] = cloneTasks(items)
+		return true
+	}
+	a.taskCache[key] = cloneTasks(items)
+	return true
 }
 
 func (a *App) getHabitCache(key string) ([]dto.Task, bool) {
@@ -363,12 +489,6 @@ func (a *App) getHabitCache(key string) ([]dto.Task, bool) {
 		return nil, false
 	}
 	return cloneTasks(habits), true
-}
-
-func (a *App) setHabitCache(key string, habits []dto.Task) {
-	a.cacheMu.Lock()
-	defer a.cacheMu.Unlock()
-	a.habitCache[key] = cloneTasks(habits)
 }
 
 func cloneTasks(tasks []dto.Task) []dto.Task {

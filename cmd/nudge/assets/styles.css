@@ -717,6 +717,8 @@ textarea {
 
 .footer {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 4px;
   justify-content: space-between;
   font-size: 11px;
   color: var(--muted);
@@ -873,4 +875,106 @@ textarea {
   .btn.ghost:hover {
     background: rgba(72, 72, 74, 0.9);
   }
+}
+
+/* v2: タスクのまとまり・期日・取得状態 */
+.task-group {
+  display: grid;
+  gap: 8px;
+}
+
+.task-group + .task-group {
+  margin-top: 6px;
+}
+
+.task-group-header {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--muted);
+  padding: 0 2px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+}
+
+button.task-group-header {
+  cursor: pointer;
+}
+
+button.task-group-header::before {
+  content: '▸ ';
+}
+
+button.task-group-header.is-open::before {
+  content: '▾ ';
+}
+
+.task-group-body {
+  display: grid;
+  gap: 10px;
+}
+
+.task-group-body[hidden] {
+  display: none;
+}
+
+.task-card.is-overdue {
+  border-left: 3px solid var(--accent-2);
+}
+
+.task-card.is-overdue .task-due {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.task-meta-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-priority {
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-glass);
+}
+
+.loading-state {
+  padding: 24px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.sync-status {
+  flex-basis: 100%;
+}
+
+.sync-status:empty {
+  display: none;
+}
+
+.sync-status.is-error {
+  color: var(--accent-2);
+  font-weight: 500;
+}
+
+.db-priority-order {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.priority-order-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.priority-order-row span {
+  min-width: 48px;
 }
