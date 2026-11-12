@@ -90,7 +90,6 @@ func main() {
 	notionClient := notion.NewClient(tokenStore)
 	core := coreapp.NewApp(cfgStore, tokenStore, notionClient)
 	_, _ = core.LoadConfig()
-	core.StartBackgroundPolling()
 
 	var app *application.App
 	var popover *application.WebviewWindow
@@ -144,12 +143,32 @@ func main() {
 
 	// メニューバー（SystemTray）の初期化
 	systray = setupTray(app, popover, settingsWindow, core.GetConfig())
+
+	// 件数ラベルは、合図を受けるたびに最新の件数を計算して出す（詳細設計 5.3）。
+	// 合図の登録とラベルの準備が済んでからポーリングを始める（最初の取得の結果を取りこぼさないため）。
+	summaryCh := make(chan struct{}, 1)
+	go runTrayLabelUpdater(core, systray, summaryCh)
+	core.SetSummaryNotifier(summaryCh)
+	core.StartBackgroundPolling()
 	if !core.IsConfigured() {
 		showSettingsWindow(settingsWindow)
 	}
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// runTrayLabelUpdater は合図を受けるたびに件数を計算し直し、メニューバーのラベルを更新する。
+// SetLabel はメインスレッドに処理を渡して待つので、この専用の goroutine からだけ呼ぶ。
+// 設定の保存後の取り直しが終わるまでは、前のラベルを残す。
+func runTrayLabelUpdater(core *coreapp.App, systray *application.SystemTray, signals <-chan struct{}) {
+	for range signals {
+		summary := core.TraySummary()
+		if summary.Reloading {
+			continue
+		}
+		systray.SetLabel(coreapp.FormatTrayLabel(summary))
 	}
 }
 
