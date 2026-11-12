@@ -33,7 +33,8 @@ Notion のタスクと習慣を macOS メニューバーで確認・更新する
    - タスク（任意）: 期日のプロパティ（Date）、優先度のプロパティ（Select）と優先度の順
    - 習慣（任意）: 曜日のチェックの列（日〜土）、ゴールのプロパティ（値は「週N回」）
    - データソース ID・タイトルのプロパティ・ステータスの種類は「詳細」にあり、空なら自動で入る
-   - 期日・優先度・ゴールが空なら、v1 と同じ「進行中のみ」「今日の習慣のみ」の表示になる
+   - タスクの DB で期日・完了・中断の値のどれかが空なら、v1 と同じ「進行中のみ」の表示になる
+   - 習慣の DB で曜日の列が 7 つそろっていなければ、v1 と同じ今日の一覧になる。ゴールが空なら、今週の回数だけを出す（連続週数は出さない）
 
 ## 設定ファイル
 - 保存先: `~/Library/Application Support/Nudge/config.json`
@@ -60,6 +61,17 @@ Notion のタスクと習慣を macOS メニューバーで確認・更新する
         "priority_property_name": "優先度",
         "priority_order": ["高", "中", "低"],
         "goal_property_name": ""
+      },
+      {
+        "key": "habits",
+        "name": "習慣",
+        "kind": "habit",
+        "enabled": true,
+        "database_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "data_source_id": "",
+        "title_property_name": "名前",
+        "checkbox_property_name": "日,月,火,水,木,金,土",
+        "goal_property_name": "ゴール"
       }
     ],
     "poll_interval_seconds": 60,

@@ -104,6 +104,8 @@ sequenceDiagram
 - 上流: `docs/overview.md` の「v2」（FT-01〜08 / FR-01〜08 / NFR-01〜06）
 - 影響範囲の分析: `.claude/docs/impact-analysis/2026-11-11_task-focus-and-habit-streak.md`
 
+> 画面の形は、実装の後（PR #6・#7）で変えた。習慣の今日の一覧と週集計の欄は 1 行にまとめ（ADR-20261112-0016）、週の 7 日は点で出す。設定画面は左に一覧・右に詳細の形にした。画面の最新の形は `docs/detail-design.md` の「v2」の 7 章を正とする。
+
 ### 構成
 
 レイヤー（UI → RPC → `app.App` → `notion.Client` → Notion）は v1 のまま変えない。新しい依存ライブラリは入れない。
