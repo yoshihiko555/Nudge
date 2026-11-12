@@ -22,14 +22,14 @@ go mod download
 # 開発サーバー起動（Vite ポート 9245）
 task dev
 
-# 現在の OS 向けに実行
+# ビルドしてから起動
 task run
 
-# 現在の OS 向けにビルド
+# ビルドだけ（bin/Nudge）
 task build
 
 # テスト実行
-go test ./...
+task test
 
 # 配布用パッケージ作成
 task package

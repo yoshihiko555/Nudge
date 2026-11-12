@@ -17,11 +17,10 @@ Notion のタスクと習慣を macOS メニューバーで確認・更新する
 ## 動作環境・必須ツール
 - macOS
 - Go
-- Wails v3 (`wails3`)
-- go-task (`task`)
+- go-task (`task`)（`wails3` は `task` の中で go.mod と同じ版を `go run` で使うので、別に入れなくてよい）
 
 ## クイックスタート
-1. Wails v3 と task を用意
+1. Go と task を用意
 2. Notion Integration を作成し、Database を共有
 3. アプリ起動
    ```sh
@@ -85,23 +84,27 @@ Notion のタスクと習慣を macOS メニューバーで確認・更新する
 
 ## 開発コマンド
 ```sh
-# 開発モード（デフォルト Vite ポート 9245）
-task dev
+# タスクの一覧と説明
+task --list
 
-# task dev が動かない場合
-wails3 task run dev
-
-# 現在の OS 向けに実行
+# ビルドしてから起動
 task run
 
-# 現在の OS 向けにビルド
+# 開発モード（ファイルを変えると、ビルドし直して起動し直す）
+task dev
+
+# ビルドだけ（bin/Nudge）
 task build
 
-# 配布用パッケージ作成
+# テスト
+task test
+
+# 配布用の .app（bin/Nudge.app）
 task package
 
-# クロスコンパイル用 Docker イメージ作成
-task setup:docker
+# 配布用の DMG と、Homebrew Cask 用の SHA256
+task dmg VERSION=x.y.z
+task dmg:sha256 VERSION=x.y.z
 ```
 
 ## テスト
